@@ -48,6 +48,7 @@
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import TranslationSettings from "$lib/components/TranslationSettings.svelte";
   import ShortcutSettings from "$lib/components/ShortcutSettings.svelte";
+  import GlossarySettings from "$lib/components/GlossarySettings.svelte";
   import LanguageDialog from "$lib/components/LanguageDialog.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import CustomPromptModal from "$lib/components/CustomPromptModal.svelte";
@@ -76,6 +77,9 @@
   import { shortcuts } from "$lib/stores/shortcuts";
   import { matchesShortcut } from "$lib/utils/shortcut";
   import { toggleSpeech } from "$lib/tts/speech";
+  import { glossaryMode } from "$lib/stores/glossaryMode";
+  import { glossary } from "$lib/glossary/action";
+  import { isEnglishDocument } from "$lib/utils/glossary";
 
   let rendererReady = $state(false);
   let searchVisible = $state(false);
@@ -85,6 +89,7 @@
   let settingsVisible = $state(false);
   let translationSettingsVisible = $state(false);
   let shortcutSettingsVisible = $state(false);
+  let glossarySettingsVisible = $state(false);
   let translating = $state(false);
   let translatingDirection = $state<"cn" | "en" | null>(null);
   let translatingProgress = $state<number | null>(null);
@@ -120,7 +125,7 @@
   // ESC handler. Each modal's own ESC handler also calls stopPropagation(); the
   // two together cover both focus-inside and focus-outside-modal cases.
   let anyModalVisible = $derived(
-    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
+    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || glossarySettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
   );
 
   // Reading progress: debounced scroll save + restore guard
@@ -224,6 +229,23 @@
   // Which segment of the View/Split/Edit control is active.
   let activeEditMode = $derived<"view" | "split" | "edit">(
     leftTab?.isEditing ? (splitMode ? "split" : "edit") : "view"
+  );
+
+  // Reading ("词") mode: word glosses only make sense in the dual reading
+  // layout (two rendered columns, no source) and only for English content.
+  let glossLayoutOk = $derived(rightOpen && !zenMode && !presenting && !leftTab?.isEditing && !rawMode);
+  let glossLanguageOk = $derived(!!activeTab && isEnglishDocument(activeTab.content));
+  let canGloss = $derived(glossLayoutOk && glossLanguageOk);
+  let leftIsEnglish = $derived(!!leftTab && isEnglishDocument(leftTab.content));
+  let rightIsEnglish = $derived(!!rightTab && isEnglishDocument(rightTab.content));
+  let glossTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.glossDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.glossDisabledLang")
+        : $glossaryMode
+          ? $t("toolbar.glossOff")
+          : $t("toolbar.glossOn"),
   );
 
   // Publish the ToC width (#108) as a CSS variable so the fixed sidebar and the
@@ -1418,6 +1440,11 @@
       onTranslate={handleTranslate}
       onOpenTranslationSettings={() => (translationSettingsVisible = true)}
       canSpeak={!!activeTab}
+      canGloss={canGloss}
+      glossActive={canGloss && $glossaryMode}
+      {glossTitle}
+      onToggleGloss={() => glossaryMode.toggle()}
+      onOpenGlossSettings={() => (glossarySettingsVisible = true)}
       canPresent={activeIsMarp}
       presenting={presenting}
       onTogglePresent={togglePresent}
@@ -1441,6 +1468,7 @@
   <SettingsDialog bind:visible={settingsVisible} />
   <TranslationSettings bind:visible={translationSettingsVisible} />
   <ShortcutSettings bind:visible={shortcutSettingsVisible} />
+  <GlossarySettings bind:visible={glossarySettingsVisible} />
   <LanguageDialog bind:visible={languageVisible} />
   <AboutDialog bind:visible={aboutVisible} />
   <CustomPromptModal bind:visible={customPromptVisible} selection={customPromptSelection} />
@@ -1539,7 +1567,16 @@
         </div>
       </main>
     {:else}
-      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0} data-focused={focusedLeft || undefined}>
+      <main
+        class="content-main"
+        class:toc-spaced={$tocVisible && $tocEntries.length > 0}
+        data-focused={focusedLeft || undefined}
+        use:glossary={{
+          enabled: $glossaryMode && leftIsEnglish && glossLayoutOk,
+          tabId: leftTab?.id ?? null,
+          filePath: leftTab?.filePath ?? null,
+        }}
+      >
         <FrontmatterBar />
         <MarkdownRenderer
           html={leftTab?.renderedHtml ?? ""}
@@ -1553,7 +1590,15 @@
       <!-- The second document, read-only, scrolling in its own column. A
            renderer only owns the shared TOC when its column has focus, so the
            `secondary` prop carries the inverse of that. -->
-      <section class="side-pane" data-focused={!focusedLeft || undefined}>
+      <section
+        class="side-pane"
+        data-focused={!focusedLeft || undefined}
+        use:glossary={{
+          enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
+          tabId: rightTab?.id ?? null,
+          filePath: rightTab?.filePath ?? null,
+        }}
+      >
         {#if rightTab}
           <MarkdownRenderer
             html={rightTab.renderedHtml}

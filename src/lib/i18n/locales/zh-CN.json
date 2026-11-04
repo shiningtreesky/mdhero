@@ -65,6 +65,11 @@
     "translateEn": "翻译成英文",
     "translating": "翻译中…",
     "translationSettings": "翻译设置",
+    "gloss": "词",
+    "glossOn": "精读模式：已开启（点击关闭）",
+    "glossOff": "精读模式：已关闭（点击开启）",
+    "glossDisabledMode": "精读模式仅在双屏阅读视图下可用（不显示源码）",
+    "glossDisabledLang": "精读模式仅对英文文档可用",
     "readAloud": "朗读",
     "pauseReading": "暂停朗读",
     "resumeReading": "继续朗读",
@@ -120,6 +125,18 @@
     "failed": "翻译失败：{err}",
     "keptNotSaved": "翻译已完成，但未写入文件；译文仍保留在标签页中。",
     "targetOpen": "「{name}」的译文标签还有未保存的修改，请先保存或关闭它。"
+  },
+  "glossary": {
+    "title": "释义服务设置",
+    "description": "精读模式查询单词释义所用的接口，与翻译设置相互独立。",
+    "baseUrl": "Base URL",
+    "baseUrlHint": "例如 http://192.168.1.13:1234，会自动补上 /v1/chat/completions。",
+    "apiKey": "API Key",
+    "apiKeyHint": "只会发送到上面的接口，并以明文保存在本地。",
+    "model": "模型 ID",
+    "modelHint": "接口中暴露的模型名称。",
+    "lookupFailed": "释义获取失败",
+    "memoryOnly": "当前标签页没有磁盘文件，释义只会缓存在本次会话中。"
   },
   "statusbar": {
     "words": {

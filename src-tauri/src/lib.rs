@@ -1,4 +1,5 @@
 mod commands;
+mod glossary;
 pub mod menu;
 mod single_window;
 mod tts_cache;
@@ -143,6 +144,9 @@ pub fn run() {
             tts_cache::tts_cache_delete,
             tts_cache::tts_cache_finalize,
             tts_cache::tts_encoder_available,
+            glossary::glossary_read,
+            glossary::glossary_store,
+            glossary::glossary_lookup,
             commands::resolve_path,
             commands::path_exists,
             commands::allow_assets,

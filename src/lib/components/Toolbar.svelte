@@ -38,6 +38,11 @@
     onTranslate = (_direction: "cn" | "en") => {},
     onOpenTranslationSettings = () => {},
     canSpeak = false,
+    canGloss = false,
+    glossActive = false,
+    glossTitle = "",
+    onToggleGloss = () => {},
+    onOpenGlossSettings = () => {},
   }: {
     onPaste?: () => void;
     onOpen?: () => void;
@@ -65,6 +70,13 @@
     /** There is an active tab whose text can be read; an empty document still
      *  clicks through to a toast that says so. */
     canSpeak?: boolean;
+    /** Reading ("词") mode: only in the dual reading view, English documents. */
+    canGloss?: boolean;
+    glossActive?: boolean;
+    glossTitle?: string;
+    onToggleGloss?: () => void;
+    /** Long-press / right-click on the 词 button opens its own endpoint panel. */
+    onOpenGlossSettings?: () => void;
   } = $props();
 
   let currentHeading = $derived(
@@ -128,6 +140,40 @@
   function handleThemeToggle() {
     closeAll();
     themeMode.update((m) => cycleTheme(m));
+  }
+
+  // Long-press (or right-click) on 词 opens its own endpoint panel instead of
+  // toggling the mode; a short press still toggles. `glossLongPressed` swallows
+  // the click that follows a long press.
+  let glossPressTimer: ReturnType<typeof setTimeout> | undefined;
+  let glossLongPressed = false;
+
+  function startGlossPress() {
+    clearTimeout(glossPressTimer);
+    glossPressTimer = setTimeout(() => {
+      glossLongPressed = true;
+      onOpenGlossSettings();
+    }, 600);
+  }
+
+  function cancelGlossPress() {
+    clearTimeout(glossPressTimer);
+  }
+
+  function handleGlossClick() {
+    if (glossLongPressed) {
+      glossLongPressed = false;
+      return;
+    }
+    closeAll();
+    onToggleGloss();
+  }
+
+  function handleGlossContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    cancelGlossPress();
+    glossLongPressed = false;
+    onOpenGlossSettings();
   }
 
   function toggleWidthMode() {
@@ -238,6 +284,25 @@
   </div>
 
   <div class="toolbar-right">
+    <!-- Reading ("词") mode: toggles word glosses in the dual reading pane.
+         Long-press / right-click opens this mode's own endpoint settings. -->
+    <button
+      class="btn gloss-btn"
+      class:active={glossActive}
+      disabled={!canGloss}
+      title={glossTitle}
+      aria-label={$t('toolbar.gloss')}
+      aria-pressed={glossActive}
+      onclick={handleGlossClick}
+      onpointerdown={startGlossPress}
+      onpointerup={cancelGlossPress}
+      onpointerleave={cancelGlossPress}
+      onpointercancel={cancelGlossPress}
+      oncontextmenu={handleGlossContextMenu}
+    >{$t('toolbar.gloss')}</button>
+
+    <div class="separator"></div>
+
     <!-- Read the whole active tab aloud: play/pause on the left of the
          translation buttons, with the rate control next to it. -->
     <div class="speech-group" role="group" aria-label={$t('toolbar.readAloud')}>
@@ -728,6 +793,45 @@
 
   .translate-settings-btn {
     padding: 5px 8px;
+  }
+
+  /* Reading ("词") toggle: a text button, idle-neutral and amber when on. */
+  .gloss-btn {
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #3a3a3c;
+    background: transparent;
+  }
+
+  .gloss-btn:hover:not(:disabled):not(.active) {
+    background: #f2f2f7;
+    color: #1c1c1e;
+  }
+
+  .gloss-btn.active {
+    background: #eab308;
+    color: #1c1c1e;
+  }
+
+  .gloss-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  :global(html.dark) .gloss-btn {
+    color: #aeaeb2;
+  }
+
+  :global(html.dark) .gloss-btn:hover:not(:disabled):not(.active) {
+    background: #2c2c2e;
+    color: #e5e5e7;
+  }
+
+  :global(html.dark) .gloss-btn.active {
+    background: #eab308;
+    color: #1c1c1e;
   }
 
   /* Centered mode switcher: absolutely centered in the toolbar so it stays put

@@ -123,7 +123,7 @@ pub enum StreamEvent {
 /// Turn a user-supplied base URL into an OpenAI chat-completions URL. Accepts
 /// both `http://host:1234` and `http://host:1234/v1`, so users can paste either
 /// form from LM Studio / Ollama / OpenAI-compatible docs.
-fn chat_completions_url(base_url: &str) -> Result<String, String> {
+pub(crate) fn chat_completions_url(base_url: &str) -> Result<String, String> {
     let base = base_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return Err("Base URL is empty".into());

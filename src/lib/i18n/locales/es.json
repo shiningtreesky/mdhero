@@ -65,6 +65,11 @@
     "translateEn": "Traducir al inglés",
     "translating": "Traduciendo…",
     "translationSettings": "Ajustes de traducción",
+    "gloss": "词",
+    "glossOn": "Glosas de palabras: activadas (clic para desactivar)",
+    "glossOff": "Glosas de palabras: desactivadas (clic para activar)",
+    "glossDisabledMode": "Las glosas necesitan la vista de lectura a dos columnas (sin código fuente)",
+    "glossDisabledLang": "Las glosas solo están disponibles para documentos en inglés",
     "readAloud": "Leer en voz alta",
     "pauseReading": "Pausar lectura",
     "resumeReading": "Reanudar lectura",
@@ -120,6 +125,18 @@
     "failed": "Error de traducción: {err}",
     "keptNotSaved": "La traducción terminó pero no se escribió; permanece en la pestaña.",
     "targetOpen": "La pestaña de traducción de {name} tiene cambios sin guardar. Guárdala o ciérrala primero."
+  },
+  "glossary": {
+    "title": "Ajustes del servicio de glosas",
+    "description": "Punto de conexión usado para consultar palabras en el modo lectura. Es independiente de los ajustes de traducción.",
+    "baseUrl": "URL base",
+    "baseUrlHint": "Ejemplo: http://192.168.1.13:1234. Se añade /v1/chat/completions automáticamente.",
+    "apiKey": "Clave API",
+    "apiKeyHint": "Solo se envía al punto de conexión anterior y se guarda localmente en texto plano.",
+    "model": "ID del modelo",
+    "modelHint": "El nombre del modelo expuesto por el punto de conexión.",
+    "lookupFailed": "No se pudo obtener la definición",
+    "memoryOnly": "Esta pestaña no tiene archivo en disco; las glosas solo se guardan durante esta sesión."
   },
   "statusbar": {
     "words": {

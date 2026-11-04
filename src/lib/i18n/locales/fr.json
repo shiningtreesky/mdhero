@@ -65,6 +65,11 @@
     "translateEn": "Traduire en anglais",
     "translating": "Traduction…",
     "translationSettings": "Paramètres de traduction",
+    "gloss": "词",
+    "glossOn": "Gloses de mots : activées (cliquer pour désactiver)",
+    "glossOff": "Gloses de mots : désactivées (cliquer pour activer)",
+    "glossDisabledMode": "Les gloses nécessitent la vue de lecture à deux colonnes (sans code source)",
+    "glossDisabledLang": "Les gloses ne sont disponibles que pour les documents en anglais",
     "readAloud": "Lire à voix haute",
     "pauseReading": "Mettre la lecture en pause",
     "resumeReading": "Reprendre la lecture",
@@ -120,6 +125,18 @@
     "failed": "Échec de la traduction : {err}",
     "keptNotSaved": "La traduction est terminée mais n'a pas été écrite ; elle reste dans l'onglet.",
     "targetOpen": "L'onglet de traduction de {name} contient des modifications non enregistrées. Enregistrez-le ou fermez-le d'abord."
+  },
+  "glossary": {
+    "title": "Paramètres du service de gloses",
+    "description": "Point de terminaison utilisé pour les recherches de mots en mode lecture. Indépendant des paramètres de traduction.",
+    "baseUrl": "URL de base",
+    "baseUrlHint": "Exemple : http://192.168.1.13:1234. /v1/chat/completions est ajouté automatiquement.",
+    "apiKey": "Clé API",
+    "apiKeyHint": "Envoyée uniquement au point de terminaison ci-dessus et stockée localement en clair.",
+    "model": "ID du modèle",
+    "modelHint": "Le nom du modèle exposé par le point de terminaison.",
+    "lookupFailed": "Échec de la recherche",
+    "memoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les gloses ne sont conservées que pour cette session."
   },
   "statusbar": {
     "words": {

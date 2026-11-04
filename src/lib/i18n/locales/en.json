@@ -65,6 +65,11 @@
     "translateEn": "Translate to English",
     "translating": "Translating…",
     "translationSettings": "Translation settings",
+    "gloss": "词",
+    "glossOn": "Word glosses: on (click to turn off)",
+    "glossOff": "Word glosses: off (click to turn on)",
+    "glossDisabledMode": "Word glosses need the dual reading view (no source pane)",
+    "glossDisabledLang": "Word glosses are only available for English documents",
     "readAloud": "Read aloud",
     "pauseReading": "Pause reading",
     "resumeReading": "Resume reading",
@@ -120,6 +125,18 @@
     "failed": "Translation failed: {err}",
     "keptNotSaved": "The translation finished but was not written; it stays in the tab.",
     "targetOpen": "The translation tab for {name} has unsaved changes. Save or close it first."
+  },
+  "glossary": {
+    "title": "Word Gloss Settings",
+    "description": "Endpoint used for the reading mode's word lookups. It is separate from the translation settings.",
+    "baseUrl": "Base URL",
+    "baseUrlHint": "Example: http://192.168.1.13:1234. /v1/chat/completions is appended automatically.",
+    "apiKey": "API Key",
+    "apiKeyHint": "Sent only to the endpoint above and stored locally in plain text.",
+    "model": "Model ID",
+    "modelHint": "The model name exposed by the endpoint.",
+    "lookupFailed": "Lookup failed",
+    "memoryOnly": "This tab has no file on disk, so glosses are cached for this session only."
   },
   "statusbar": {
     "words": {
