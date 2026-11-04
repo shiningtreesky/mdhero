@@ -49,6 +49,8 @@
   import TranslationSettings from "$lib/components/TranslationSettings.svelte";
   import ShortcutSettings from "$lib/components/ShortcutSettings.svelte";
   import GlossarySettings from "$lib/components/GlossarySettings.svelte";
+  import GraderSettings from "$lib/components/GraderSettings.svelte";
+  import ScorePanel from "$lib/components/ScorePanel.svelte";
   import LanguageDialog from "$lib/components/LanguageDialog.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import CustomPromptModal from "$lib/components/CustomPromptModal.svelte";
@@ -80,6 +82,21 @@
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossary } from "$lib/glossary/action";
   import { isEnglishDocument } from "$lib/utils/glossary";
+  import { parasMode } from "$lib/stores/parasMode";
+  import { paras as parasAction } from "$lib/paras/action";
+  import {
+    getParasDocument,
+    getParasSession,
+    parasDocuments,
+    type ParasState,
+  } from "$lib/paras/store";
+  import { graderSettings, isGraderConfigured } from "$lib/stores/graderSettings";
+  import {
+    buildScoreMessages,
+    parseScoreResponse,
+    type ScoreParagraphInput,
+    type ScoreRow,
+  } from "$lib/utils/parasScore";
 
   let rendererReady = $state(false);
   let searchVisible = $state(false);
@@ -90,6 +107,15 @@
   let translationSettingsVisible = $state(false);
   let shortcutSettingsVisible = $state(false);
   let glossarySettingsVisible = $state(false);
+  let graderSettingsVisible = $state(false);
+  let scorePanelVisible = $state(false);
+  let scoring = $state(false);
+  let scoreRows = $state<ScoreRow[]>([]);
+  let scoreError = $state("");
+  let scoreRaw = $state("");
+  let scoreDegraded = $state(false);
+  let parasCardOpen = $state(false);
+  let parasState = $state<ParasState>({ items: {}, drafts: {} });
   let translating = $state(false);
   let translatingDirection = $state<"cn" | "en" | null>(null);
   let translatingProgress = $state<number | null>(null);
@@ -125,7 +151,7 @@
   // ESC handler. Each modal's own ESC handler also calls stopPropagation(); the
   // two together cover both focus-inside and focus-outside-modal cases.
   let anyModalVisible = $derived(
-    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || glossarySettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
+    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || glossarySettingsVisible || graderSettingsVisible || scorePanelVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible || $parasMode || parasCardOpen
   );
 
   // Reading progress: debounced scroll save + restore guard
@@ -247,6 +273,68 @@
           ? $t("toolbar.glossOff")
           : $t("toolbar.glossOn"),
   );
+
+  // Paragraph ("段") mode reuses the same gates as 词: the two only make sense
+  // in the dual reading layout with an English article, and they are mutually
+  // exclusive because both paint highlights over the same column.
+  let canParas = $derived(canGloss);
+  let canScore = $derived($parasMode && canGloss);
+  let activeParasSession = $derived(
+    activeTab ? getParasSession(activeTab.id, activeTab.filePath) : null,
+  );
+  let parasStats = $derived.by(() => {
+    const entries = activeTab ? ($parasDocuments[activeTab.id]?.entries ?? []) : [];
+    let translated = 0;
+    let skipped = 0;
+    for (const entry of entries) {
+      const item = parasState.items[entry.index];
+      if (!item) continue;
+      if (item.status === "skipped") skipped++;
+      else if (item.text.trim().length > 0) translated++;
+    }
+    return { total: entries.length, translated, skipped };
+  });
+  let parasTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.parasDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.parasDisabledLang")
+        : $parasMode
+          ? `${$t("toolbar.parasOn")}${
+              parasStats.total > 0
+                ? ` · ${$t("toolbar.parasProgress", {
+                    translated: parasStats.translated,
+                    total: parasStats.total,
+                    skipped: parasStats.skipped,
+                  })}`
+                : ""
+            }`
+          : $t("toolbar.parasOff"),
+  );
+  let scoreTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.parasDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.parasDisabledLang")
+        : !$parasMode
+          ? $t("toolbar.scoreNeedsParas")
+          : scoring
+            ? $t("toolbar.grading")
+            : $t("toolbar.scoreTitle"),
+  );
+
+  // Mirror the active document's paragraph session into component state so
+  // the toolbar count and the grader always see the same items.
+  $effect(() => {
+    const session = activeParasSession;
+    if (!session) {
+      parasState = { items: {}, drafts: {} };
+      return;
+    }
+    return session.state.subscribe((value) => {
+      parasState = value;
+    });
+  });
 
   // Publish the ToC width (#108) as a CSS variable so the fixed sidebar and the
   // document's left padding always agree on one number. It lives here rather
@@ -476,6 +564,114 @@
       return false;
     }
   }
+
+  // 词 and 段 are mutually exclusive: both decorate the same article, and the
+  // requirement is that turning one on clears the other's highlights, bubbles
+  // and click interception.
+  function handleToggleParas(): void {
+    const next = !$parasMode;
+    if (next) glossaryMode.set(false);
+    parasMode.set(next);
+  }
+
+  function handleToggleGloss(): void {
+    const next = !$glossaryMode;
+    if (next) parasMode.set(false);
+    glossaryMode.set(next);
+  }
+
+  function errorText(err: unknown): string {
+    if (typeof err === "string") return err;
+    if (err instanceof Error) return err.message;
+    return String(err);
+  }
+
+  /**
+   * 对比提交: every processed paragraph goes out in one request. Skipped
+   * paragraphs are sent explicitly so the model knows the user gave up on
+   * them, and the answer is only shown as a reference — the user's text is
+   * never overwritten.
+   */
+  async function handleScore(): Promise<void> {
+    if (scoring) return;
+    if (!$parasMode) {
+      showToast(translate("toolbar.scoreNeedsParas"));
+      return;
+    }
+    const settings = get(graderSettings);
+    if (!isGraderConfigured(settings)) {
+      showToast(translate("score.notConfigured"));
+      return;
+    }
+    const tabId = activeTab?.id;
+    if (!tabId) return;
+    const doc = getParasDocument(tabId);
+    if (!doc || doc.total === 0) {
+      showToast(translate("score.noParagraphs"));
+      return;
+    }
+
+    const inputs: ScoreParagraphInput[] = [];
+    for (const entry of doc.entries) {
+      const item = parasState.items[entry.index];
+      if (!item) continue;
+      if (item.status === "skipped") {
+        inputs.push({ index: entry.index, english: entry.text, chinese: "", status: "skipped" });
+      } else if (item.text.trim().length > 0) {
+        inputs.push({
+          index: entry.index,
+          english: entry.text,
+          chinese: item.text,
+          status: "translated",
+        });
+      }
+    }
+    if (!inputs.some((input) => input.status === "translated")) {
+      showToast(translate("score.noTranslations"));
+      return;
+    }
+
+    scoring = true;
+    scorePanelVisible = true;
+    scoreRows = [];
+    scoreError = "";
+    scoreRaw = "";
+    scoreDegraded = false;
+    try {
+      const raw = await invoke<string>("grader_score", {
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey,
+        model: settings.model,
+        messages: buildScoreMessages(inputs),
+      });
+      const parsed = parseScoreResponse(raw);
+      const byIndex = new Map(parsed.entries.map((entry) => [entry.index, entry]));
+      scoreRows = inputs.map<ScoreRow>((input) => {
+        const answer = byIndex.get(input.index);
+        return {
+          ...input,
+          score: answer?.score ?? null,
+          comment: answer?.comment ?? "",
+          recommended: answer?.recommended ?? "",
+          answered: !!answer,
+        };
+      });
+      if (!parsed.ok) {
+        scoreError = translate("score.unparsable");
+        scoreDegraded = true;
+        scoreRaw = raw;
+      } else if (parsed.entries.length < inputs.length) {
+        scoreDegraded = true;
+        scoreRaw = raw;
+      }
+    } catch (err) {
+      // Real error text from Rust, including the endpoint's own message.
+      scoreError = translate("score.failed", { err: errorText(err) });
+    } finally {
+      scoring = false;
+    }
+  }
+
 
   /**
    * The toolbar's cn / en buttons. The active tab is translated into the
@@ -1122,7 +1318,9 @@
       // Do not eat the key inside a text field: backquote is a markdown code
       // fence. The shortcut still fires there (the user accepted that trade-off).
       if (!isInputFocused()) e.preventDefault();
-      if (!shortcutSettingsVisible) toggleSpeech();
+      // The paragraph editor types into a textarea; a shortcut press there
+      // must not start or stop reading behind the card.
+      if (!shortcutSettingsVisible && !parasCardOpen) toggleSpeech();
       return;
     }
 
@@ -1443,8 +1641,19 @@
       canGloss={canGloss}
       glossActive={canGloss && $glossaryMode}
       {glossTitle}
-      onToggleGloss={() => glossaryMode.toggle()}
+      onToggleGloss={handleToggleGloss}
       onOpenGlossSettings={() => (glossarySettingsVisible = true)}
+      canParas={canParas}
+      parasActive={canParas && $parasMode}
+      {parasTitle}
+      parasTranslated={parasStats.translated}
+      parasTotal={parasStats.total}
+      onToggleParas={handleToggleParas}
+      canScore={canScore}
+      {scoring}
+      {scoreTitle}
+      onScore={handleScore}
+      onOpenGraderSettings={() => (graderSettingsVisible = true)}
       canPresent={activeIsMarp}
       presenting={presenting}
       onTogglePresent={togglePresent}
@@ -1469,6 +1678,18 @@
   <TranslationSettings bind:visible={translationSettingsVisible} />
   <ShortcutSettings bind:visible={shortcutSettingsVisible} />
   <GlossarySettings bind:visible={glossarySettingsVisible} />
+  <GraderSettings bind:visible={graderSettingsVisible} />
+  <ScorePanel
+    bind:visible={scorePanelVisible}
+    loading={scoring}
+    rows={scoreRows}
+    error={scoreError}
+    raw={scoreRaw}
+    degraded={scoreDegraded}
+    translated={parasStats.translated}
+    total={parasStats.total}
+    skipped={parasStats.skipped}
+  />
   <LanguageDialog bind:visible={languageVisible} />
   <AboutDialog bind:visible={aboutVisible} />
   <CustomPromptModal bind:visible={customPromptVisible} selection={customPromptSelection} />
@@ -1576,6 +1797,12 @@
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
         }}
+        use:parasAction={{
+          enabled: $parasMode && leftIsEnglish && glossLayoutOk,
+          tabId: leftTab?.id ?? null,
+          filePath: leftTab?.filePath ?? null,
+          onCardState: (open) => (parasCardOpen = open),
+        }}
       >
         <FrontmatterBar />
         <MarkdownRenderer
@@ -1597,6 +1824,12 @@
           enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
           tabId: rightTab?.id ?? null,
           filePath: rightTab?.filePath ?? null,
+        }}
+        use:parasAction={{
+          enabled: $parasMode && rightIsEnglish && glossLayoutOk,
+          tabId: rightTab?.id ?? null,
+          filePath: rightTab?.filePath ?? null,
+          onCardState: (open) => (parasCardOpen = open),
         }}
       >
         {#if rightTab}

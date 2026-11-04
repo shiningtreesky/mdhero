@@ -43,6 +43,19 @@
     glossTitle = "",
     onToggleGloss = () => {},
     onOpenGlossSettings = () => {},
+    /** Paragraph reading ("段") mode: mutually exclusive with 词. */
+    canParas = false,
+    parasActive = false,
+    parasTitle = "",
+    parasTranslated = 0,
+    parasTotal = 0,
+    onToggleParas = () => {},
+    /** 对比提交: scores every translated paragraph in one request. */
+    canScore = false,
+    scoring = false,
+    scoreTitle = "",
+    onScore = () => {},
+    onOpenGraderSettings = () => {},
   }: {
     onPaste?: () => void;
     onOpen?: () => void;
@@ -77,6 +90,18 @@
     onToggleGloss?: () => void;
     /** Long-press / right-click on the 词 button opens its own endpoint panel. */
     onOpenGlossSettings?: () => void;
+    canParas?: boolean;
+    parasActive?: boolean;
+    parasTitle?: string;
+    /** Confirmed translations shown inside the 段 button as 8/23. */
+    parasTranslated?: number;
+    parasTotal?: number;
+    onToggleParas?: () => void;
+    canScore?: boolean;
+    scoring?: boolean;
+    scoreTitle?: string;
+    onScore?: () => void;
+    onOpenGraderSettings?: () => void;
   } = $props();
 
   let currentHeading = $derived(
@@ -176,6 +201,41 @@
     onOpenGlossSettings();
   }
 
+  // Same gesture on 对比提交: short press submits, long press / right-click
+  // opens the grading endpoint panel. It is never natively disabled so those
+  // gestures keep working while the button looks greyed out.
+  let scorePressTimer: ReturnType<typeof setTimeout> | undefined;
+  let scoreLongPressed = false;
+
+  function startScorePress() {
+    clearTimeout(scorePressTimer);
+    scorePressTimer = setTimeout(() => {
+      scoreLongPressed = true;
+      onOpenGraderSettings();
+    }, 600);
+  }
+
+  function cancelScorePress() {
+    clearTimeout(scorePressTimer);
+  }
+
+  function handleScoreClick() {
+    if (scoreLongPressed) {
+      scoreLongPressed = false;
+      return;
+    }
+    if (scoring) return;
+    closeAll();
+    onScore();
+  }
+
+  function handleScoreContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    cancelScorePress();
+    scoreLongPressed = false;
+    onOpenGraderSettings();
+  }
+
   function toggleWidthMode() {
     closeAll();
     settings.update((s) => ({
@@ -235,14 +295,15 @@
     </div>
 
     {#if $document.fileName && currentHeading}
-      <span class="current-heading">{currentHeading}</span>
+      <span class="current-heading" title={currentHeading}>{currentHeading}</span>
     {/if}
   </div>
 
-  <!-- View / Split / Edit segmented control, centered in the toolbar. Split &
-       Edit need an editable local file; when there isn't one they disable with
-       an explaining tip. -->
-  <div class="toolbar-center">
+  <div class="toolbar-right">
+    <!-- View / Split / Edit segmented control: leads the right button group so
+         the right side keeps room for new buttons. Split & Edit need an
+         editable local file; when there isn't one they disable with an
+         explaining tip. -->
     <div
       class="mode-segmented"
       role="group"
@@ -281,9 +342,36 @@
         disabled={!canEdit}
       >{$t('toolbar.edit')}</button>
     </div>
-  </div>
 
-  <div class="toolbar-right">
+    <!-- 对比提交: one request covering every translated paragraph. Kept
+         clickable even when unavailable so right-click / long-press can open
+         the grading endpoint panel. -->
+    <button
+      class="btn score-btn"
+      class:scoring
+      class:inactive={!canScore}
+      aria-disabled={!canScore || scoring}
+      title={scoreTitle}
+      aria-label={$t('toolbar.score')}
+      onclick={handleScoreClick}
+      onpointerdown={startScorePress}
+      onpointerup={cancelScorePress}
+      onpointerleave={cancelScorePress}
+      onpointercancel={cancelScorePress}
+      oncontextmenu={handleScoreContextMenu}
+    >{#if scoring}{$t('toolbar.grading')}{:else}{$t('toolbar.score')}{/if}</button>
+
+    <!-- Paragraph ("段") mode: toggles paragraph translation/hover. -->
+    <button
+      class="btn gloss-btn"
+      class:active={parasActive}
+      disabled={!canParas}
+      title={parasTitle}
+      aria-label={$t('toolbar.paras')}
+      aria-pressed={parasActive}
+      onclick={() => { closeAll(); onToggleParas(); }}
+    >{$t('toolbar.paras')}{#if parasActive && parasTotal > 0}<span class="paras-progress">{parasTranslated}/{parasTotal}</span>{/if}</button>
+
     <!-- Reading ("词") mode: toggles word glosses in the dual reading pane.
          Long-press / right-click opens this mode's own endpoint settings. -->
     <button
@@ -596,11 +684,15 @@
     border-bottom-color: #2c2c2e;
   }
 
+  /* The left group yields space first: the logo and buttons never shrink, the
+     heading ellipsizes, and at extreme widths it collapses to zero width. */
   .toolbar-left {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex: 1 1 auto;
     min-width: 0;
+    overflow: hidden;
   }
 
   .toolbar-logo {
@@ -626,6 +718,9 @@
     display: flex;
     align-items: center;
     gap: 2px;
+    flex: 0 0 auto;
+    /* Keeps the cluster right-aligned even when the left group is hidden. */
+    margin-left: auto;
   }
 
   .translate-group {
@@ -820,6 +915,52 @@
     cursor: not-allowed;
   }
 
+  /* 8/23 progress inside the 段 button. */
+  .paras-progress {
+    margin-left: 4px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+
+  /* 对比提交 shares the 词 metrics but keeps a neutral idle look, because the
+     amber highlight is reserved for an enabled reading mode. */
+  .score-btn {
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #3a3a3c;
+    background: transparent;
+  }
+
+  .score-btn:hover:not(.inactive):not(.scoring) {
+    background: #f2f2f7;
+    color: #1c1c1e;
+  }
+
+  .score-btn.inactive {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .score-btn.scoring {
+    color: #0891b2;
+  }
+
+  :global(html.dark) .score-btn {
+    color: #aeaeb2;
+  }
+
+  :global(html.dark) .score-btn:hover:not(.inactive):not(.scoring) {
+    background: #2c2c2e;
+    color: #e5e5e7;
+  }
+
+  :global(html.dark) .score-btn.scoring {
+    color: #22d3ee;
+  }
+
   :global(html.dark) .gloss-btn {
     color: #aeaeb2;
   }
@@ -834,23 +975,13 @@
     color: #1c1c1e;
   }
 
-  /* Centered mode switcher: absolutely centered in the toolbar so it stays put
-     regardless of the left/right group widths. Anchors to .toolbar (sticky). */
-  .toolbar-center {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    align-items: center;
-  }
-
   .btn-group {
     display: flex;
     gap: 1px;
     background: #e5e5e5;
     border-radius: 7px;
     overflow: hidden;
+    flex-shrink: 0;
   }
 
   :global(html.dark) .btn-group {
@@ -946,13 +1077,18 @@
     color: #22D3EE;
   }
 
+  /* Document heading: the only compressible element in the left group. It
+     ellipsizes with a full-name tooltip, then collapses to zero width, so the
+     buttons on both sides keep their full size. */
   .current-heading {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-right: 8px;
     font-size: 11px;
     color: #aeaeb2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 200px;
   }
 
   .separator {
@@ -975,6 +1111,8 @@
     gap: 2px;
     background: #e8e8ed;
     border-radius: 7px;
+    flex-shrink: 0;
+    margin-right: 4px;
   }
 
   :global(html.dark) .mode-segmented {
@@ -1098,6 +1236,55 @@
 
   :global(html.dark) .dirty-dot {
     background: #22D3EE;
+  }
+
+  /* Narrow widths: the right cluster is 948px of full-size buttons and never
+     shrinks, so the left group gives ground in this order. Thresholds are the
+     exact points where the remaining left content stops fitting next to the
+     right cluster (24px toolbar padding + 948px right group).
+       1294px  heading needs >=60px to be readable, below that it is hidden
+       1234px  logo + wordmark + open/paste/url + heading
+       1233px  drop the wordmark          -> 188px left content
+       1160px  drop the open/paste/url group -> 26px left content
+       1010px  tighten right gaps/separators -> right group 868px
+        998px  drop the left group entirely
+     Below ~892px the right cluster alone no longer fits; see the report. */
+  @media (max-width: 1293px) {
+    .current-heading {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1233px) {
+    .toolbar-wordmark {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1159px) {
+    .toolbar-left .btn-group {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1009px) {
+    .toolbar-right {
+      gap: 0;
+    }
+
+    .toolbar-right .separator {
+      display: none;
+    }
+
+    .mode-segmented {
+      margin-right: 0;
+    }
+  }
+
+  @media (max-width: 997px) {
+    .toolbar-left {
+      display: none;
+    }
   }
 
   @media print {

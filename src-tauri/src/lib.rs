@@ -1,5 +1,8 @@
 mod commands;
 mod glossary;
+mod grader;
+mod json_store;
+mod paras;
 pub mod menu;
 mod single_window;
 mod tts_cache;
@@ -147,6 +150,9 @@ pub fn run() {
             glossary::glossary_read,
             glossary::glossary_store,
             glossary::glossary_lookup,
+            paras::paras_read,
+            paras::paras_store,
+            grader::grader_score,
             commands::resolve_path,
             commands::path_exists,
             commands::allow_assets,
