@@ -28,7 +28,7 @@
   .scroll-top {
     position: fixed;
     bottom: 36px;
-    right: 16px;
+    right: calc(var(--side-w, 0px) + 16px);
     z-index: 15;
     width: 36px;
     height: 36px;

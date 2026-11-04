@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { A4_WIDTH } from "../utils/page";
 
 export interface ReaderSettings {
   fontSize: number;
@@ -35,7 +36,7 @@ export const DEFAULT_FONT_SIZE = 17;
 export const MIN_FONT_SIZE = 10;
 export const MAX_FONT_SIZE = 32;
 
-const DEFAULT_MAX_WIDTH = 720;
+const DEFAULT_MAX_WIDTH = A4_WIDTH;
 const MIN_MAX_WIDTH = 560;
 const MAX_MAX_WIDTH = 3840;
 const WIDE_MAX_WIDTH = "min(3840px, calc(100vw - clamp(48px, 8vw, 128px)))";

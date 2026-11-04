@@ -5,13 +5,14 @@
   import { gutterHtml as buildGutterHtml, gutterWidth as buildGutterWidth, lineCount as countLines } from "$lib/utils/line-gutter";
   import { highlightMarkdownLines } from "$lib/utils/markdown-highlight";
   import { patchLines } from "$lib/utils/line-patch";
+  import { A4_HEIGHT, A4_WIDTH } from "$lib/utils/page";
 
   let {
     value,
     onChange,
     fontSize = 14,
     lineHeight = 1.6,
-    maxWidth = "720px",
+    maxWidth = `${A4_WIDTH}px`,
     showLineNumbers = false,
     syntaxHighlighting = false,
     split = false,
@@ -188,7 +189,7 @@
 </script>
 
 <div class="editor-wrap" class:split>
-  <div class="editor-stack" class:with-gutter={showLineNumbers} style="max-width: {maxWidth}; --gutter-w: {gutterWidth};">
+  <div class="editor-stack sheet" class:with-gutter={showLineNumbers} style="max-width: {maxWidth}; height: min({A4_HEIGHT}px, 100%); --gutter-w: {gutterWidth};">
     {#if showLineNumbers}
       <!-- Line-number gutter: a transparent mirror wrapping identically to the
            textarea; CSS counters on each line block render the numbers. -->
@@ -248,10 +249,11 @@
     position: fixed;
     top: var(--chrome-top, 88px);
     left: var(--tabs-w, 0px);
-    right: 0;
+    right: var(--side-w, 0px);
     bottom: 0;
     display: flex;
     justify-content: center;
+    align-items: center;
     background: #fafafa;
     z-index: 1;
   }

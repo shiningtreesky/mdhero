@@ -13,15 +13,16 @@
     "windows": [
       {
         "title": "MDHero",
-        "width": 900,
-        "height": 700,
+        "width": 834,
+        "height": 1235,
         "minWidth": 400,
         "minHeight": 300,
+        "center": true,
         "decorations": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://raw.githubusercontent.com https://gist.githubusercontent.com https://api.github.com https://github.com https://objects.githubusercontent.com https://codeload.github.com; object-src 'none'; base-uri 'self'; frame-src 'none'; worker-src 'self' blob:",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:8880 http://localhost:8880 https://raw.githubusercontent.com https://gist.githubusercontent.com https://api.github.com https://github.com https://objects.githubusercontent.com https://codeload.github.com; object-src 'none'; base-uri 'self'; frame-src 'none'; worker-src 'self' blob:",
       "assetProtocol": {
         "enable": true,
         "scope": {

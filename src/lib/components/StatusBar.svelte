@@ -44,7 +44,7 @@
     position: fixed;
     bottom: 0;
     left: var(--tabs-w, 0px);
-    right: 0;
+    right: var(--side-w, 0px);
     z-index: 10;
     display: flex;
     align-items: center;

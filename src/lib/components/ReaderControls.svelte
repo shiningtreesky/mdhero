@@ -112,7 +112,7 @@
         type="range"
         min="560"
         max="3840"
-        step="80"
+        step="2"
         value={$settings.maxWidth}
         disabled={$settings.widthMode === "wide"}
         oninput={(e) => settings.update((s) => ({ ...s, maxWidth: parseInt(e.currentTarget.value) }))}

@@ -22,7 +22,10 @@
    * the Editor component renders its own highlight backdrop instead.
    */
   function getViewTarget(): HTMLElement | null {
-    return document.querySelector<HTMLElement>("article.prose, pre.raw-source");
+    // Search acts on the column that has focus, which is the only one carrying
+    // `data-focused`. Without that scope, both columns' articles would be
+    // candidates and the wrong one would get marked.
+    return document.querySelector<HTMLElement>("[data-focused] article.prose, [data-focused] pre.raw-source");
   }
 
   function clearMarks() {

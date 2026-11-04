@@ -19,6 +19,14 @@
   import { basename } from "$lib/utils/path";
   import { promptOverwrite, promptUnsaved } from "$lib/utils/unsaved-prompt";
   import { settings, getContentMaxWidth, stepFontSize, DEFAULT_FONT_SIZE } from "$lib/stores/settings";
+  import { translationSettings } from "$lib/stores/translation";
+  import { runTranslation } from "$lib/translation/runTranslation";
+  import {
+    buildTargetPath,
+    isValidBaseUrl,
+    isValidSuffix,
+    splitFrontmatter,
+  } from "$lib/utils/translation";
   import { initFileWatcher, stopFileWatcher } from "$lib/tauri/watcher";
   import { restoreSession } from "$lib/tauri/session";
   import { attachSplitSync, type SplitSync } from "$lib/utils/split-sync";
@@ -27,15 +35,18 @@
   import { invoke } from "@tauri-apps/api/core";
   import { tocVisible, tocEntries } from "$lib/stores/toc";
   import Toolbar from "$lib/components/Toolbar.svelte";
+  import SpeechBar from "$lib/components/SpeechBar.svelte";
   import MarkdownRenderer from "$lib/components/MarkdownRenderer.svelte";
   import DropZone from "$lib/components/DropZone.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import TableOfContents from "$lib/components/TableOfContents.svelte";
   import TabBar from "$lib/components/TabBar.svelte";
+  import TabDragGhost from "$lib/components/TabDragGhost.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
   import PasteModal from "$lib/components/PasteModal.svelte";
   import OpenDialog from "$lib/components/OpenDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import TranslationSettings from "$lib/components/TranslationSettings.svelte";
   import LanguageDialog from "$lib/components/LanguageDialog.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import CustomPromptModal from "$lib/components/CustomPromptModal.svelte";
@@ -56,7 +67,10 @@
   import { getCurrentSourceLine, scrollToSourceLine, type ViewMode } from "$lib/utils/scroll-sync";
   import { gutterHtml, gutterWidth, lineCount } from "$lib/utils/line-gutter";
   import { createWheelZoom } from "$lib/utils/wheel-zoom";
-  import { chromeTop, sideTabsWidth, SIDE_TABS_CHROME, TOP_TABS_CHROME } from "$lib/utils/layout";
+  import { chromeTopFor, chromeTop, sideTabsWidth } from "$lib/utils/layout";
+  import { focusedPane, rightPaneOpen } from "$lib/stores/panes";
+  import { A4_HEIGHT, A4_WIDTH, SIDE_COLUMN_WIDTH, type PageLayout } from "$lib/utils/page";
+  import { fitWindowToPage } from "$lib/tauri/page-window";
   import { saveProgress, getProgress } from "$lib/stores/readingProgress";
 
   let rendererReady = $state(false);
@@ -65,6 +79,10 @@
   let pasteDefaultMode = $state<"paste" | "url">("paste");
   let openVisible = $state(false);
   let settingsVisible = $state(false);
+  let translationSettingsVisible = $state(false);
+  let translating = $state(false);
+  let translatingDirection = $state<"cn" | "en" | null>(null);
+  let translatingProgress = $state<number | null>(null);
   let languageVisible = $state(false);
   let aboutVisible = $state(false);
   let customPromptVisible = $state(false);
@@ -97,7 +115,7 @@
   // ESC handler. Each modal's own ESC handler also calls stopPropagation(); the
   // two together cover both focus-inside and focus-outside-modal cases.
   let anyModalVisible = $derived(
-    searchVisible || pasteVisible || openVisible || settingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
+    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
   );
 
   // Reading progress: debounced scroll save + restore guard
@@ -178,20 +196,29 @@
     });
   }
 
-  const { tabs, activeTabId } = tabStore;
+  const { tabs, activeTabId, activeIds } = tabStore;
 
   let activeTab = $derived<Tab | null>($tabs.find((t) => t.id === $activeTabId) ?? null);
+  // Each column reads its own active tab. The left column can not follow
+  // `activeTabId`, because that is whichever column has focus: with the right
+  // column focused it would show the right column's document here instead.
+  let leftTab = $derived<Tab | null>($tabs.find((t) => t.id === $activeIds.left) ?? null);
+  let rightTab = $derived<Tab | null>($tabs.find((t) => t.id === $activeIds.right) ?? null);
+  let focusedLeft = $derived($focusedPane === "left");
+  let rightOpen = $derived($rightPaneOpen);
   let canEditActive = $derived(
     !!activeTab?.filePath
     && !activeTab.filePath.startsWith("paste://")
     && !activeTab.filePath.startsWith("url://")
   );
+  // The left column's own states: the editor, the raw view and split belong to
+  // it, and the right column is the read-only one.
   let currentMode = $derived<ViewMode>(
-    activeTab?.isEditing ? "editor" : rawMode ? "raw" : "viewer"
+    leftTab?.isEditing ? "editor" : rawMode ? "raw" : "viewer"
   );
   // Which segment of the View/Split/Edit control is active.
   let activeEditMode = $derived<"view" | "split" | "edit">(
-    activeTab?.isEditing ? (splitMode ? "split" : "edit") : "view"
+    leftTab?.isEditing ? (splitMode ? "split" : "edit") : "view"
   );
 
   // Publish the ToC width (#108) as a CSS variable so the fixed sidebar and the
@@ -209,20 +236,48 @@
     const width = zenMode ? 0 : sideTabsWidth($settings);
     const root = document.documentElement;
     root.style.setProperty("--tabs-w", `${width}px`);
-    root.style.setProperty("--chrome-top", `${width > 0 ? SIDE_TABS_CHROME : TOP_TABS_CHROME}px`);
+    root.style.setProperty("--chrome-top", `${chromeTopFor(width)}px`);
+  });
+
+  // The right column's width, published so the tab rows, the status bar, the
+  // editor and the left column all agree on where it begins.
+  $effect(() => {
+    const width = rightOpen && !presenting && !zenMode ? SIDE_COLUMN_WIDTH : 0;
+    document.documentElement.style.setProperty("--side-w", `${width}px`);
+  });
+
+  // One A4 sheet per column, every launch. Split and Dual are the two layouts
+  // that need two columns' worth of window; nothing else changes the window.
+  function fitToPage(layout: PageLayout, center: boolean) {
+    const s = get(settings);
+    const tabs = zenMode ? 0 : sideTabsWidth(s);
+    const toc = layout === "single" && !zenMode && get(tocVisible) && get(tocEntries).length > 0 ? s.tocWidth : 0;
+    fitWindowToPage({ layout, sideTabsWidth: tabs, tocWidth: toc, chromeTop: chromeTopFor(tabs) }, center);
+  }
+
+  // The fit only re-runs when the layout changes. Guarded on that alone: a
+  // keystroke replaces the tab object and would otherwise fire here.
+  let fittedLayout: PageLayout = "single";
+  $effect(() => {
+    const dualOn = rightOpen && !presenting && !zenMode;
+    const splitOn = splitMode && leftTab?.isEditing;
+    const layout: PageLayout = dualOn ? "dual" : splitOn ? "split" : "single";
+    if (layout === fittedLayout) return;
+    fittedLayout = layout;
+    fitToPage(layout, false);
   });
 
   // Live-render the editor content into the split preview pane, debounced so
   // fast typing stays smooth. ponytail: full re-render per debounce tick; fine
   // for typical docs — add incremental rendering only if a huge file lags.
   $effect(() => {
-    if (!splitMode || !activeTab?.isEditing) return;
-    const content = activeTab.editContent;
-    const baseDir = getBaseDir(activeTab.filePath);
+    if (!splitMode || !leftTab?.isEditing) return;
+    const content = leftTab.editContent;
+    const baseDir = getBaseDir(leftTab.filePath);
     clearTimeout(splitPreviewTimer);
     splitPreviewTimer = setTimeout(() => {
       const result = renderFull(content, baseDir);
-      allowAssets(result.assetPaths, activeTab.filePath);
+      allowAssets(result.assetPaths, leftTab.filePath);
       splitPreviewHtml = result.html;
       // The re-render replaced the preview's blocks; put it back where the
       // editor is so typing never leaves the two panes on different sections.
@@ -240,7 +295,7 @@
   let splitSync: SplitSync | null = null;
   $effect(() => {
     if (activeEditMode !== "split") return;
-    void $activeTabId;
+    void $activeIds.left;
     let gone = false;
     tick().then(() => {
       if (gone) return;
@@ -396,6 +451,112 @@
   }
 
   /**
+   * The toolbar's cn / en buttons. The active tab is translated into the
+   * requested language, written next to the source file, and opened in a new
+   * tab that streams the result as it arrives.
+   */
+  async function handleTranslate(direction: "cn" | "en"): Promise<void> {
+    if (translating) return;
+    const tab = tabStore.getActiveTab();
+    if (!tab) return;
+
+    const content = tab.isEditing ? tab.editContent : tab.content;
+    if (!content.trim()) {
+      showToast(translate("translation.emptyDocument"));
+      return;
+    }
+    const { body } = splitFrontmatter(content);
+    if (!body.trim()) {
+      showToast(translate("translation.emptyDocument"));
+      return;
+    }
+
+    // A translation needs a real file to derive the target name and directory
+    // from. A pasted, URL or never-saved document is told to save a local copy
+    // first; the translation does not start until it has a path.
+    if (
+      !tab.filePath ||
+      tab.filePath.startsWith("new://") ||
+      tab.filePath.startsWith("paste://") ||
+      tab.filePath.startsWith("url://")
+    ) {
+      await promptSaveForTranslation();
+      return;
+    }
+
+    const config = get(translationSettings);
+    const cnSuffix = config.cnSuffix.trim();
+    const enSuffix = config.enSuffix.trim();
+    if (
+      !isValidBaseUrl(config.baseUrl) ||
+      !config.model.trim() ||
+      !isValidSuffix(cnSuffix) ||
+      !isValidSuffix(enSuffix)
+    ) {
+      showToast(translate("translation.invalidConfig"));
+      translationSettingsVisible = true;
+      return;
+    }
+
+    const suffix = direction === "cn" ? cnSuffix : enSuffix;
+    const targetPath = buildTargetPath(tab.filePath, suffix);
+    const targetName = basename(targetPath);
+
+    translating = true;
+    translatingDirection = direction;
+    translatingProgress = 0;
+    try {
+      const outcome = await runTranslation({
+        sourceTab: tab,
+        sourceContent: content,
+        targetPath,
+        targetName,
+        direction,
+        settings: {
+          ...config,
+          baseUrl: config.baseUrl.trim(),
+          model: config.model.trim(),
+          cnSuffix,
+          enSuffix,
+        },
+        // Checked only when the translation is complete: until then nothing
+        // has been written, and a cancel keeps the finished translation.
+        confirmOverwrite: async () => {
+          if (!(await pathExists(targetPath))) return true;
+          return promptOverwrite(
+            translate("translation.overwriteMsg", { name: targetName }),
+            translate("translation.overwriteTitle"),
+          );
+        },
+        onProgress: (percent) => (translatingProgress = percent),
+      });
+      if (outcome === "kept") showToast(translate("translation.keptNotSaved"));
+    } catch (err) {
+      console.error("Translation failed:", err);
+      showToast(translate("translation.failed", { err: String(err) }), 7000);
+    } finally {
+      translating = false;
+      translatingDirection = null;
+      translatingProgress = null;
+    }
+  }
+
+  /** A tab without an on-disk markdown file cannot be translated: the target
+   *  name and folder are derived from the source path. Tell the user to save a
+   *  local copy first, and never start the translation from here. */
+  async function promptSaveForTranslation(): Promise<void> {
+    try {
+      const { message: dialog } = await import("@tauri-apps/plugin-dialog");
+      await dialog(translate("translation.unsavedMsgReadonly"), {
+        title: translate("translation.unsavedTitle"),
+        kind: "info",
+      });
+    } catch {
+      showToast(translate("translation.unsavedMsgReadonly"));
+    }
+  }
+
+  /**
    * Open a local file linked from the rendered markdown (issue #30). Resolves
    * the href against the current document's directory: markdown files open in a
    * new in-app tab, other files (PDF, images, …) open in the OS default app,
@@ -472,10 +633,25 @@
   // View / Split / Edit segmented control (#19). Split & Edit are both editing
   // states; splitMode is the only difference. Routed through switchMode so the
   // source-line position is preserved across the change.
-  function setMode(target: "view" | "split" | "edit") {
+  function setMode(target: "view" | "split" | "dual" | "edit") {
     if (!activeTab) return;
-    if (target === "view") {
+    if (target === "dual") {
+      // Open the second column and hand it the document being read. Split goes
+      // off first: both layouts claim two columns' worth of width.
       splitMode = false;
+      if (rightOpen) {
+        focusedPane.set("right");
+      } else {
+        rightPaneOpen.set(true);
+        if (activeTab) tabStore.moveTabToPane(activeTab.id, "right");
+        else focusedPane.set("right");
+      }
+      return;
+    }
+    if (target === "view") {
+      // Leaving dual hands the right column's tabs back to the left column.
+      splitMode = false;
+      tabStore.collapseRightPane();
       switchMode(rawMode ? "raw" : "viewer");
       return;
     }
@@ -592,6 +768,11 @@
   onMount(() => {
     initRenderer();
     rendererReady = true;
+
+    // A4 on every launch, whatever the last session left behind: the document
+    // width becomes the sheet and the window is sized to show all of it.
+    settings.update((s) => ({ ...s, maxWidth: A4_WIDTH, widthMode: "comfortable" }));
+    fitToPage("single", true);
 
     // First run: ask for a language. The picker highlights the OS-detected
     // one (English when the OS language isn't supported); choosing or
@@ -870,10 +1051,14 @@
     }
   }
 
-  // Move the active tab by `delta` positions through the visible tab order
-  // ([Home, ...file tabs]), wrapping around at both ends.
+  // Move the active tab by `delta` positions through the visible tab order,
+  // wrapping at both ends. The cycling stays inside the column being worked in:
+  // the other column keeps whatever it was showing.
   function cycleTab(delta: number) {
-    const order = [HOME_TAB_ID, ...$tabs.map((t) => t.id)];
+    const pane = get(focusedPane);
+    const ids = tabStore.paneTabs(pane).map((t) => t.id);
+    // Only the left column can go back to the recents screen.
+    const order = pane === "left" ? [HOME_TAB_ID, ...ids] : ids;
     if (order.length <= 1) return;
     const current = order.indexOf($activeTabId ?? HOME_TAB_ID);
     const base = current === -1 ? 0 : current;
@@ -900,12 +1085,13 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    // Cmd+1-9 tab switching
+    // Cmd+1-9 tab switching, inside the column being worked in.
     if ((e.metaKey || e.ctrlKey) && e.key >= "1" && e.key <= "9") {
       e.preventDefault();
       const idx = parseInt(e.key) - 1;
-      if ($tabs[idx]) {
-        tabStore.switchTab($tabs[idx].id);
+      const rowTabs = tabStore.paneTabs(get(focusedPane));
+      if (rowTabs[idx]) {
+        tabStore.switchTab(rowTabs[idx].id);
       }
       return;
     }
@@ -1103,11 +1289,14 @@
     if (e.key === "j" || e.key === "k") releaseScrollKey(e.key);
   }
 
-  // Sync tab switching with document store — only reads $activeTabId and $tabs
+  // Sync tab switching with document store. The document store mirrors the LEFT
+  // column: that is the column the window-level chrome belongs to (the status
+  // bar, print, the scroll-based reading progress, the raw view). What the
+  // keyboard acts on is `activeTab`, which follows whichever column has focus.
   let prevTabId: string | null = null;
 
   $effect(() => {
-    const id = $activeTabId;
+    const id = $activeIds.left;
     const allTabs = $tabs;
 
     // Skip if same tab
@@ -1199,23 +1388,39 @@
       dirty={activeTab?.dirty ?? false}
       canEdit={canEditActive}
       editMode={activeEditMode}
+      dual={rightOpen}
       onSetMode={setMode}
       onSave={() => activeTab && handleSave(activeTab)}
       onOpenSettings={() => (settingsVisible = true)}
+      canTranslate={!!activeTab}
+      {translating}
+      {translatingDirection}
+      translateProgress={translatingProgress}
+      onTranslate={handleTranslate}
+      onOpenTranslationSettings={() => (translationSettingsVisible = true)}
+      canSpeak={!!activeTab}
       canPresent={activeIsMarp}
       presenting={presenting}
       onTogglePresent={togglePresent}
     />
-    <TabBar onCloseTab={handleCloseTab} />
+    <TabBar onCloseTab={handleCloseTab} pane="left" focused={focusedLeft} />
+    {#if rightOpen}
+      <!-- The second column has its own row of tabs. TabBar pins it over that
+         column, and a tab dragged onto it moves between the two. -->
+      <TabBar onCloseTab={handleCloseTab} pane="right" focused={!focusedLeft} />
+    {/if}
   {/if}
+  <TabDragGhost />
   <DropZone />
   {#if !zenMode && !activeTab?.isEditing}
     <TableOfContents />
   {/if}
+  <SpeechBar />
   <SearchOverlay bind:visible={searchVisible} />
   <PasteModal bind:visible={pasteVisible} defaultMode={pasteDefaultMode} />
   <OpenDialog bind:visible={openVisible} />
   <SettingsDialog bind:visible={settingsVisible} />
+  <TranslationSettings bind:visible={translationSettingsVisible} />
   <LanguageDialog bind:visible={languageVisible} />
   <AboutDialog bind:visible={aboutVisible} />
   <CustomPromptModal bind:visible={customPromptVisible} selection={customPromptSelection} />
@@ -1248,38 +1453,39 @@
         onExit={() => (presenting = false)}
         onLocalLink={handleLocalLink}
       />
-    {:else if activeTab?.isEditing && splitMode}
+    {:else if leftTab?.isEditing && splitMode}
       <!-- Split (#19): editor left, live preview right. Both panes are fixed
            half-width; the Editor's own fixed positioning takes the `split` prop
            to yield the left half. Keyed on the tab (#129): the Editor keeps a
            local copy of the text that it won't overwrite while focused, and a
            tab switch doesn't blur it, so a reused instance kept showing (and
-           saving into the new tab) the previous tab's text. -->
-      {#key activeTab.id}
+           saving into the new tab) the previous tab's text. The editor always
+           belongs to the left column, so it reads that column's tab. -->
+      {#key leftTab.id}
         <Editor
-          value={activeTab.editContent}
-          onChange={(v) => tabStore.updateEditContent(activeTab!.id, v)}
+          value={leftTab.editContent}
+          onChange={(v) => tabStore.updateEditContent(leftTab!.id, v)}
           fontSize={$settings.fontSize}
           lineHeight={$settings.lineHeight}
-          maxWidth="100%"
+          maxWidth={contentMaxWidth}
           showLineNumbers={$settings.showLineNumbers}
           syntaxHighlighting={$settings.syntaxHighlighting}
           split
         />
       {/key}
-      <main class="split-preview">
+      <main class="split-preview" data-focused={focusedLeft || undefined}>
         <MarkdownRenderer
           html={splitPreviewHtml}
           onImageClick={(src, all, idx) => { lightboxImages = all; lightboxIndex = idx; lightboxVisible = true; }}
           onLocalLink={handleLocalLink}
         />
       </main>
-    {:else if activeTab?.isEditing}
-      <!-- One Editor per tab, as in Split above (#129). -->
-      {#key activeTab.id}
+    {:else if leftTab?.isEditing}
+      <!-- One Editor per tab, as in Split above (#19/#129). -->
+      {#key leftTab.id}
         <Editor
-          value={activeTab.editContent}
-          onChange={(v) => tabStore.updateEditContent(activeTab!.id, v)}
+          value={leftTab.editContent}
+          onChange={(v) => tabStore.updateEditContent(leftTab!.id, v)}
           fontSize={$settings.fontSize}
           lineHeight={$settings.lineHeight}
           maxWidth={contentMaxWidth}
@@ -1288,11 +1494,11 @@
         />
       {/key}
     {:else if rawMode}
-      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0}>
+      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0} data-focused={focusedLeft || undefined}>
         <div
-          class="raw-stack"
+          class="raw-stack sheet"
           class:with-gutter={rawGutterOn}
-          style="max-width: {contentMaxWidth}; --gutter-w: {rawGutterWidth};"
+          style="max-width: {contentMaxWidth}; min-height: {A4_HEIGHT}px; --gutter-w: {rawGutterWidth};"
         >
           {#if rawGutterOn}
             <!-- Transparent mirror wrapping identically to the <pre>; CSS
@@ -1313,14 +1519,30 @@
         </div>
       </main>
     {:else}
-      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0}>
+      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0} data-focused={focusedLeft || undefined}>
         <FrontmatterBar />
         <MarkdownRenderer
-          html={$docStore.renderedHtml}
+          html={leftTab?.renderedHtml ?? ""}
+          secondary={!focusedLeft}
           onImageClick={(src, all, idx) => { lightboxImages = all; lightboxIndex = idx; lightboxVisible = true; }}
           onLocalLink={handleLocalLink}
         />
       </main>
+    {/if}
+    {#if rightOpen && !zenMode && !presenting}
+      <!-- The second document, read-only, scrolling in its own column. A
+           renderer only owns the shared TOC when its column has focus, so the
+           `secondary` prop carries the inverse of that. -->
+      <section class="side-pane" data-focused={!focusedLeft || undefined}>
+        {#if rightTab}
+          <MarkdownRenderer
+            html={rightTab.renderedHtml}
+            secondary={focusedLeft}
+            onImageClick={(src, all, idx) => { lightboxImages = all; lightboxIndex = idx; lightboxVisible = true; }}
+            onLocalLink={handleLocalLink}
+          />
+        {/if}
+      </section>
     {/if}
     {#if !zenMode && !activeTab?.isEditing && !presenting}
       <StatusBar />
@@ -1428,7 +1650,33 @@
      status bar) offset themselves by the same variable. */
   .doc-area {
     padding-left: var(--tabs-w, 0px);
+    /* Dual mode: the left column stops where the pinned document begins. */
+    padding-right: var(--side-w, 0px);
     transition: padding-left 0.15s ease;
+  }
+
+  /* Dual mode's pinned document (#…): a read-only column of its own, scrolling
+     independently, with the same sheet inside it. The primary document still
+     scrolls the window, so nothing about its scroll position, search or ToC
+     changes. */
+  .side-pane {
+    position: fixed;
+    top: var(--chrome-top, 88px);
+    right: 0;
+    bottom: 0;
+    width: var(--side-w, 0px);
+    overflow-y: auto;
+    padding-bottom: 4rem;
+    z-index: 1;
+    background: #fafafa;
+    /* The seam between the two columns. Its pixel is counted in the window's
+       width (page.ts SIDE_COLUMN_WIDTH), so the pinned sheet keeps its A4. */
+    border-left: 1px solid #e5e5ea;
+  }
+
+  :global(html.dark) .side-pane {
+    background: #161618;
+    border-left-color: #2c2c2e;
   }
 
   :global(html.tabs-resizing) {

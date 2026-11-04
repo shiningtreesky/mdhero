@@ -140,9 +140,10 @@ describe("the unsaved-changes call sites", () => {
 
   it("prompts on all three paths", () => {
     // Close a dirty tab, quit with dirty tabs, and save over a file that
-    // changed on disk. All three inverted Escape before #160.
+    // changed on disk. All three inverted Escape before #160. The translation
+    // overwrite prompt is a fourth, deliberate call site.
     expect(page.match(/promptUnsaved\(/g)).toHaveLength(2);
-    expect(page.match(/promptOverwrite\(/g)).toHaveLength(1);
+    expect(page.match(/promptOverwrite\(/g)).toHaveLength(2);
   });
 
   it("acts on the destructive answer explicitly, never on the absence of a safe one", () => {

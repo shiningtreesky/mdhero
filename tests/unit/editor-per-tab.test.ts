@@ -22,9 +22,9 @@ describe("#129 — one Editor per tab", () => {
     expect(editors.length).toBeGreaterThanOrEqual(2);
     for (const at of editors) {
       const before = page.slice(0, at);
-      const open = before.lastIndexOf("{#key activeTab.id}");
+      const open = before.lastIndexOf("{#key leftTab.id}");
       const close = before.lastIndexOf("{/key}");
-      expect(open, "an <Editor> is not inside {#key activeTab.id}").toBeGreaterThan(close);
+      expect(open, "an <Editor> is not inside {#key leftTab.id}").toBeGreaterThan(close);
     }
   });
 
@@ -32,6 +32,6 @@ describe("#129 — one Editor per tab", () => {
     const start = page.indexOf("let splitSync");
     const end = page.indexOf("attachSplitSync(ta", start);
     expect(start, "split scroll sync effect not found").toBeGreaterThan(-1);
-    expect(page.slice(start, end)).toContain("$activeTabId");
+    expect(page.slice(start, end)).toContain("$activeIds.left");
   });
 });

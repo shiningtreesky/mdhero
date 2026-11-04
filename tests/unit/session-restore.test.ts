@@ -4,7 +4,13 @@ const openFile = vi.fn();
 const pathExists = vi.fn();
 const switchTab = vi.fn();
 const goHome = vi.fn();
-let saved: { paths: string[]; activePath: string | null } | null = null;
+const moveTabToPane = vi.fn();
+let saved: {
+  paths: string[];
+  activePath: string | null;
+  rightPaths?: string[];
+  rightOpen?: boolean;
+} | null = null;
 let tabs: { id: string; filePath: string }[] = [];
 
 vi.mock("../../src/lib/tauri/files", () => ({ openFile, pathExists }));
@@ -14,6 +20,7 @@ vi.mock("../../src/lib/stores/tabs", () => ({
     tabs: { subscribe: (run: (v: unknown) => void) => (run(tabs), () => {}) },
     switchTab,
     goHome,
+    moveTabToPane,
   },
 }));
 
@@ -71,5 +78,20 @@ describe("restoreSession (#72)", () => {
 
     expect(await restoreSession()).toBe(2);
     expect(switchTab).toHaveBeenCalledWith("id:/d/c.md");
+  });
+
+  it("puts the right column's files back into that column", async () => {
+    saved = {
+      paths: ["/d/a.md"],
+      activePath: "/d/a.md",
+      rightPaths: ["/d/right.md"],
+      rightOpen: true,
+    };
+
+    expect(await restoreSession()).toBe(2);
+    expect(openFile.mock.calls.map((c) => c[0])).toEqual(["/d/a.md", "/d/right.md"]);
+    // openFile hands the document to the column being worked in, so the right
+    // column's tab has to be moved once it is back.
+    expect(moveTabToPane).toHaveBeenCalledWith("id:/d/right.md", "right");
   });
 });

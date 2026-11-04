@@ -1,6 +1,7 @@
 mod commands;
 pub mod menu;
 mod single_window;
+mod tts_cache;
 mod watcher;
 
 use std::sync::Mutex;
@@ -111,7 +112,18 @@ pub fn run() {
     };
 
     builder
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Where the window was, and whether it was up at all, come back from the
+        // last run. Its size does not: the document is one A4 sheet and the
+        // window is sized to it at launch (frontend/page-window.ts), so a saved
+        // size — or a saved maximized state — would fight that every time.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -122,6 +134,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::read_markdown_file,
             commands::write_markdown_file,
+            commands::stream_chat_completion,
+            tts_cache::tts_cache_begin,
+            tts_cache::tts_cache_append,
+            tts_cache::tts_cache_read,
+            tts_cache::tts_cache_valid,
+            tts_cache::tts_cache_meta,
+            tts_cache::tts_cache_delete,
+            tts_cache::tts_cache_finalize,
+            tts_cache::tts_encoder_available,
             commands::resolve_path,
             commands::path_exists,
             commands::allow_assets,

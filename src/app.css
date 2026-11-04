@@ -37,6 +37,18 @@ html.dark {
   color: #e5e5e7;
 }
 
+/* The document sits on one A4 sheet of paper, on the gray mat of the window.
+   Sheet dimensions live in src/lib/utils/page.ts; this is only the surface. */
+.sheet {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+html.dark .sheet {
+  background: #1c1c1e;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -73,6 +85,20 @@ html.dark ::-webkit-scrollbar-thumb {
     padding: 0 !important;
     font-size: 12pt !important;
     line-height: 1.5 !important;
+  }
+
+  /* The sheet is a screen affordance: no fixed page height, no shadow, and it
+     must stay white even in dark mode, where the print body is already white. */
+  .sheet {
+    min-height: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+
+  /* Printing exports the document being read; the pinned second column would
+     otherwise land on the same page below it. */
+  .side-pane {
+    display: none !important;
   }
 
   pre {

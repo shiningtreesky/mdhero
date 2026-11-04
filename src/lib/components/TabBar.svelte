@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { tick } from "svelte";
-  import { get } from "svelte/store";
+  import { onDestroy, onMount, tick } from "svelte";
+  import { flip } from "svelte/animate";
+  import { cubicOut } from "svelte/easing";
+  import { derived, get } from "svelte/store";
   import { PanelLeft, PanelTop } from "@lucide/svelte";
   import { tabStore, HOME_TAB_ID, type Tab } from "$lib/stores/tabs";
+  import type { PaneId } from "$lib/stores/panes";
+  import { tabDrag, type DragRect, type TabDragTarget } from "$lib/stores/tab-drag";
   import {
     settings,
     clampTabsWidth,
@@ -15,18 +19,143 @@
   import { copyFileName, copyPath } from "$lib/utils/clipboard";
   import { createDelayedCall } from "$lib/utils/delayed-call";
   import { stripVerbatimPrefix, tabFolderLabel, tabsNeedingFolder } from "$lib/utils/path";
+  import { resolveDrop } from "$lib/utils/tab-drag";
   import PanelResizer from "./PanelResizer.svelte";
   import { translate, t } from "$lib/i18n";
 
   let {
     onCloseTab = (id: string) => tabStore.closeTab(id),
+    pane = "left",
+    focused = false,
   }: {
     onCloseTab?: (id: string) => void;
+    /** The column this row belongs to: each column has its own tab row. */
+    pane?: PaneId;
+    /** Whether the keyboard, search, ToC and status bar act on this column.
+     *  Only the focused column shows its tab as active. */
+    focused?: boolean;
   } = $props();
 
   const { tabs, activeTabId } = tabStore;
-  let dragIndex = $state(-1);
-  let overIndex = $state(-1);
+  /** This column's tabs, in row order. The drag indexes below are row-local. */
+  let rowTabs = $derived($tabs.filter((t) => t.pane === pane));
+
+  // The ghost follows the pointer on every mousemove, but the rows only change
+  // when the tab or its target slot changes. Keeping those separate stops the
+  // flip animations from being aborted by pointer-only updates.
+  const draggedTabId = derived(tabDrag, (drag) => drag?.tabId ?? null);
+  const draggedTarget = derived(tabDrag, (drag) => drag?.target ?? null);
+
+  interface RowEntry {
+    key: string;
+    tab: Tab | null;
+    /** Position in `rowTabs`, so a drop knows where the tab came from. */
+    index: number;
+  }
+
+  /** The row as it should look mid-drag: the dragged tab is lifted out and a
+   *  gap is left at the slot the pointer is over. When the drag moves on, the
+   *  keyed each block animates the remaining tabs into their new places. */
+  let rowEntries = $derived.by(() => {
+    const tabId = $draggedTabId;
+    const target = $draggedTarget;
+    const base: RowEntry[] = rowTabs.map((tab, index) => ({ key: tab.id, tab, index }));
+    if (!tabId) return base;
+    const visible = base.filter((entry) => entry.tab?.id !== tabId);
+    if (target?.pane !== pane) return visible;
+    const at = Math.max(0, Math.min(target.index, visible.length));
+    return [
+      ...visible.slice(0, at),
+      { key: "__tab_drag_gap__", tab: null, index: -1 },
+      ...visible.slice(at),
+    ];
+  });
+
+  const DRAG_THRESHOLD = 4;
+  const LAND_MS = 185;
+  const RETURN_MS = 185;
+
+  let reduceMotion = $state(false);
+  let suppressClickUntil = 0;
+  /** Cleanup for the drag currently owned by this row, if any. */
+  let cleanupDrag: (() => void) | null = null;
+
+  onMount(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reduceMotion = media.matches;
+    const onChange = () => (reduceMotion = media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  });
+
+  onDestroy(() => {
+    cleanupDrag?.();
+    if (get(tabDrag)?.sourcePane === pane) clearDragState();
+  });
+
+  function motionMs(ms: number): number {
+    return reduceMotion ? 0 : ms;
+  }
+
+  /** Walks the live rows so a pointer maps to a column and an insertion slot.
+   *  The dragged tab is left out: an index is a slot in the tabs still there. */
+  function targetUnderPointer(x: number, y: number, tabId: string): TabDragTarget | null {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".tabbar-files")).map((row) => {
+      const orientation: "horizontal" | "vertical" =
+        row.dataset.orientation === "vertical" ? "vertical" : "horizontal";
+      // The side panel is taller than its tab list; the empty part under the
+      // last tab is still a drop area, so measure the panel for that layout.
+      const panel = row.closest<HTMLElement>(".tabbar.side");
+      const rect = (panel ?? row).getBoundingClientRect();
+      const childEnds = Array.from(row.querySelectorAll<HTMLElement>("[data-tab-id]"))
+        .filter((child) => child.dataset.tabId !== tabId)
+        .map((child) => {
+          const box = child.getBoundingClientRect();
+          return orientation === "vertical" ? box.bottom : box.right;
+        });
+      return {
+        pane: (row.dataset.pane as PaneId) || pane,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        orientation,
+        childEnds,
+      };
+    });
+    return resolveDrop(rows, x, y);
+  }
+
+  function gapRect(target: TabDragTarget): DragRect | null {
+    const gap = document.querySelector<HTMLElement>(
+      `.tabbar-files[data-pane="${target.pane}"] [data-drag-gap]`
+    );
+    if (!gap) return null;
+    const box = gap.getBoundingClientRect();
+    return { left: box.left, top: box.top, width: box.width, height: box.height };
+  }
+
+  function clearDragState() {
+    tabDrag.set(null);
+    (window as any).__mdhero_tab_dragging = false;
+    document.body.classList.remove("tab-dragging");
+  }
+
+  function handleTabClick(tab: Tab) {
+    // The mouseup that ends a drag can still produce a click. The tab is not
+    // being chosen then: the drop is still landing (or returning).
+    if (get(tabDrag) || Date.now() < suppressClickUntil) return;
+    tabStore.switchTab(tab.id);
+  }
+
+  function gapStyle(): string {
+    const drag = $tabDrag;
+    if (!drag) return "";
+    return side
+      ? `height: ${drag.height}px; width: 100%;`
+      : `width: ${drag.width}px; height: ${drag.height}px;`;
+  }
+
   let contextMenuTab = $state<Tab | null>(null);
   let contextMenuPos = $state({ x: 0, y: 0 });
   let contextMenuEl = $state<HTMLElement | null>(null);
@@ -34,8 +163,10 @@
   // the entry clicked.
   let copyFeedback = $state<{ item: "path" | "name" | "reveal"; text: string } | null>(null);
 
-  // Tabs in a row across the top, or in a resizable panel on the left.
-  let side = $derived($settings.tabsPosition === "side");
+  // Tabs in a row across the top, or in a resizable panel on the left. The side
+  // panel is the primary column's arrangement; the second column always keeps
+  // its own row of tabs.
+  let side = $derived($settings.tabsPosition === "side" && pane === "left");
   // Side tabs whose folder goes under their name, to tell same-named files apart.
   let withFolder = $derived(tabsNeedingFolder($tabs));
 
@@ -67,7 +198,7 @@
     onCloseTab(id);
   }
 
-  function handleMouseDown(e: MouseEvent, idx: number) {
+  function handleMouseDown(e: MouseEvent, tab: Tab, index: number) {
     // Suppress the middle-button default (autoscroll) so the tab close on
     // auxclick fires cleanly on the first click (#46) — but don't close here;
     // closing on mousedown mis-fires as the row re-renders. Don't start a drag.
@@ -77,40 +208,147 @@
     }
     // Only the left button starts a drag.
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest(".tab-close") || (e.target as HTMLElement).closest(".dropdown")) return;
+    const clicked = e.target as HTMLElement;
+    if (clicked.closest(".tab-close") || clicked.closest(".dropdown")) return;
+
+    const tabEl = e.currentTarget as HTMLElement;
+    const startRect = tabEl.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const offsetX = e.clientX - startRect.left;
+    const offsetY = e.clientY - startRect.top;
     e.preventDefault();
-    dragIndex = idx;
 
-    function handleMouseMove(ev: MouseEvent) {
-      const tabbar = document.querySelector(".tabbar-files");
-      if (!tabbar) return;
-      const children = Array.from(tabbar.children) as HTMLElement[];
-      for (let i = 0; i < children.length; i++) {
-        const rect = children[i].getBoundingClientRect();
-        const inside = side
-          ? ev.clientY >= rect.top && ev.clientY < rect.bottom
-          : ev.clientX >= rect.left && ev.clientX < rect.right;
-        if (inside) {
-          overIndex = i;
-          break;
-        }
-      }
-    }
+    let active = false;
+    let finished = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    function handleMouseUp() {
-      if (dragIndex >= 0 && overIndex >= 0 && dragIndex !== overIndex) {
-        tabStore.reorderTabs(dragIndex, overIndex);
-      }
-      dragIndex = -1;
-      overIndex = -1;
-      (window as any).__mdhero_tab_dragging = false;
+    const cleanup = () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      if (timer) clearTimeout(timer);
+      if (cleanupDrag === cleanup) cleanupDrag = null;
+      if (active) clearDragState();
+    };
+
+    function beginDrag(clientX: number, clientY: number) {
+      active = true;
+      document.body.classList.add("tab-dragging");
+      (window as any).__mdhero_tab_dragging = true;
+      tabDrag.set({
+        tabId: tab.id,
+        sourcePane: pane,
+        sourceIndex: index,
+        sourceRect: {
+          left: startRect.left,
+          top: startRect.top,
+          width: startRect.width,
+          height: startRect.height,
+        },
+        x: clientX - offsetX,
+        y: clientY - offsetY,
+        width: startRect.width,
+        height: startRect.height,
+        target: targetUnderPointer(clientX, clientY, tab.id),
+        phase: "dragging",
+      });
     }
 
-    (window as any).__mdhero_tab_dragging = true;
+    function handleMouseMove(ev: MouseEvent) {
+      if (finished) return;
+      if (!active) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        beginDrag(ev.clientX, ev.clientY);
+        return;
+      }
+      const target = targetUnderPointer(ev.clientX, ev.clientY, tab.id);
+      tabDrag.update((drag) => {
+        if (!drag || drag.phase !== "dragging") return drag;
+        const sameTarget = drag.target?.pane === target?.pane && drag.target?.index === target?.index;
+        return {
+          ...drag,
+          x: ev.clientX - offsetX,
+          y: ev.clientY - offsetY,
+          target: sameTarget ? drag.target : target,
+        };
+      });
+    }
+
+    function flyBack() {
+      const drag = get(tabDrag);
+      if (!drag) {
+        cleanup();
+        return;
+      }
+      tabDrag.set({
+        ...drag,
+        phase: "returning",
+        target: { pane: drag.sourcePane, index: drag.sourceIndex },
+        x: drag.sourceRect.left,
+        y: drag.sourceRect.top,
+        width: drag.sourceRect.width,
+        height: drag.sourceRect.height,
+      });
+      timer = setTimeout(cleanup, motionMs(RETURN_MS));
+    }
+
+    async function handleMouseUp() {
+      if (finished) return;
+      if (!active) {
+        finished = true;
+        cleanup();
+        return;
+      }
+      finished = true;
+      const drag = get(tabDrag);
+      const target = drag?.target ?? null;
+      if (!drag || !target) {
+        flyBack();
+        return;
+      }
+      // The last mousemove may not have painted yet; measure the gap after it.
+      await tick();
+      const gap = gapRect(target);
+      if (!gap) {
+        flyBack();
+        return;
+      }
+      suppressClickUntil = Date.now() + 120;
+      tabDrag.set({
+        ...drag,
+        phase: "landing",
+        x: gap.left,
+        y: gap.top,
+        width: gap.width,
+        height: gap.height,
+      });
+      timer = setTimeout(() => {
+        if (target.pane === pane) {
+          tabStore.reorderTabs(pane, index, target.index);
+        } else {
+          tabStore.moveTabToPane(tab.id, target.pane, target.index);
+        }
+        cleanup();
+      }, motionMs(LAND_MS));
+    }
+
+    function handleKeyDown(ev: KeyboardEvent) {
+      if (ev.key !== "Escape" || finished) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finished = true;
+      if (!active) {
+        cleanup();
+        return;
+      }
+      flyBack();
+    }
+
+    cleanupDrag = cleanup;
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("keydown", handleKeyDown, true);
   }
 
   function handleNewTab() {
@@ -219,12 +457,13 @@
   {#if tab.diskChanged}<span class="tab-disk" title={$t('tabbar.diskChanged')}>⟳</span>{:else if tab.dirty}<span class="tab-dirty" title={$t('tabbar.unsaved')}>•</span>{/if}{tab.fileName}
 {/snippet}
 
-<div class="tabbar" class:side>
+<div class="tabbar" class:side class:pane-left={pane === "left"} class:pane-right={pane === "right"}>
   <div class="tabbar-inner">
-    <!-- Home tab -->
+    <!-- Home tab: only the left column can go back to the recents screen. -->
+    {#if pane === "left"}
     <div
       class="tab home-tab"
-      class:active={$activeTabId === HOME_TAB_ID}
+      class:active={focused && $activeTabId === HOME_TAB_ID}
       onclick={() => tabStore.goHome()}
       role="button"
       tabindex="0"
@@ -235,44 +474,62 @@
       </svg>
       {#if side}<span class="tab-label">{$t('tabbar.home')}</span>{/if}
     </div>
+    {/if}
 
     <!-- File tabs -->
-    <div class="tabbar-files">
-      {#each $tabs as tab, idx (tab.id)}
+    <div class="tabbar-files" data-pane={pane} data-orientation={side ? "vertical" : "horizontal"}>
+      {#if pane === "right" && rowTabs.length === 0 && $tabDrag?.target?.pane !== pane}
+        <!-- A tab can be dropped anywhere in an empty row, so say so. -->
+        <span class="tab-empty">{$t('tabbar.dropHere')}</span>
+      {/if}
+      {#each rowEntries as entry (entry.key)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          onmousedown={(e) => handleMouseDown(e, idx)}
-          onauxclick={(e) => handleAuxClick(e, tab.id)}
-          onclick={() => tabStore.switchTab(tab.id)}
-          oncontextmenu={(e) => handleContextMenu(e, tab)}
+          animate:flip={{ duration: reduceMotion ? 0 : 170, easing: cubicOut }}
+          onmousedown={(e) => entry.tab && handleMouseDown(e, entry.tab, entry.index)}
+          onauxclick={(e) => entry.tab && handleAuxClick(e, entry.tab.id)}
+          onclick={() => entry.tab && handleTabClick(entry.tab)}
+          oncontextmenu={(e) => entry.tab && handleContextMenu(e, entry.tab)}
           class="tab"
-          class:active={$activeTabId === tab.id}
-          class:drag-over={overIndex === idx && dragIndex !== idx && dragIndex >= 0}
-          title={side && isFileTab(tab) ? stripVerbatimPrefix(tab.filePath) : undefined}
+          class:active={!!entry.tab && focused && $activeTabId === entry.tab.id}
+          class:tab-drag-gap={!entry.tab}
+          data-tab-id={entry.tab?.id}
+          data-drag-gap={entry.tab ? undefined : "true"}
+          aria-hidden={entry.tab ? undefined : "true"}
+          style={entry.tab ? undefined : gapStyle()}
+          title={entry.tab && side && isFileTab(entry.tab) ? stripVerbatimPrefix(entry.tab.filePath) : undefined}
         >
-          {#if side && withFolder.has(tab.id)}
-            <span class="tab-text">
+          {#if entry.tab}
+            {@const tab = entry.tab}
+            {#if side && withFolder.has(tab.id)}
+              <span class="tab-text">
+                <span class="tab-label">{@render tabName(tab)}</span>
+                <span class="tab-folder">{tabFolderLabel(tab.filePath, $t)}</span>
+              </span>
+            {:else}
               <span class="tab-label">{@render tabName(tab)}</span>
-              <span class="tab-folder">{tabFolderLabel(tab.filePath, $t)}</span>
+            {/if}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span
+              role="button"
+              tabindex="-1"
+              onclick={(e) => handleClose(e, tab.id)}
+              onkeydown={() => {}}
+              class="tab-close"
+            >
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><line x1="1.5" y1="1.5" x2="7.5" y2="7.5"/><line x1="7.5" y1="1.5" x2="1.5" y2="7.5"/></svg>
             </span>
-          {:else}
-            <span class="tab-label">{@render tabName(tab)}</span>
           {/if}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            role="button"
-            tabindex="-1"
-            onclick={(e) => handleClose(e, tab.id)}
-            onkeydown={() => {}}
-            class="tab-close"
-          >
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><line x1="1.5" y1="1.5" x2="7.5" y2="7.5"/><line x1="7.5" y1="1.5" x2="1.5" y2="7.5"/></svg>
-          </span>
         </div>
       {/each}
+      <!-- Absorbs a drop past the last tab, and gives an empty row a target wide
+           enough to hit without aiming at a pixel. -->
+      <span class="tabbar-drop" aria-hidden="true"></span>
     </div>
 
-    <!-- New tab button -->
+    <!-- New tab button: the columns share one document set, so the controls
+         that act on the app live in the left row only. -->
+    {#if pane === "left"}
     <button class="new-tab-btn" onclick={handleNewTab} title={$t('tabbar.newTab')}>
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
         <line x1="6" y1="2" x2="6" y2="10"/>
@@ -288,6 +545,7 @@
     >
       {#if side}<PanelTop size={14} />{:else}<PanelLeft size={14} />{/if}
     </button>
+    {/if}
   </div>
 </div>
 {#if side}
@@ -348,6 +606,36 @@
 
   :global(html.dark) .tabbar {
     background: #111113;
+  }
+
+  /* Each column has its own tab row. The left row is in flow (sticky above its
+     document); the right row is pinned over its own column, whose width the
+     `--side-w` variable published by +page.svelte measures. */
+  .tabbar.pane-right {
+    position: fixed;
+    top: 44px;
+    left: calc(100% - var(--side-w, 0px));
+    right: 0;
+  }
+
+  .tabbar.pane-left {
+    padding-right: calc(var(--side-w, 0px) + 8px);
+  }
+
+  .tab-empty {
+    font-size: 12px;
+    color: #8e8e93;
+    padding: 4px 8px;
+  }
+
+  /* The slack inside a row that still counts as "drop into this row". */
+  .tabbar-drop {
+    flex: 1 1 auto;
+    min-width: 16px;
+  }
+
+  .pane-right .tabbar-files {
+    flex: 1 1 auto;
   }
 
   .tabbar::-webkit-scrollbar {
@@ -413,12 +701,33 @@
     border-bottom: 2px solid #22D3EE;
   }
 
-  .tab.drag-over {
-    border-left: 2px solid #0891B2;
+  /* The slot the dragged tab will land in. The tabs around it move with the
+     flip animation on the keyed each block, so the row visibly makes room. */
+  .tab.tab-drag-gap {
+    padding: 0;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    border: 1.5px dashed #0891B2;
+    border-radius: 8px 8px 0 0;
+    background: rgba(8, 145, 178, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(8, 145, 178, 0.05);
+    pointer-events: none;
   }
 
-  :global(html.dark) .tab.drag-over {
-    border-left-color: #22D3EE;
+  :global(html.dark) .tab.tab-drag-gap {
+    border-color: #22D3EE;
+    background: rgba(34, 211, 238, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.06);
+  }
+
+  /* While a tab is lifted the whole window shows the grab cursor, including
+     over the other column's row and the documents between them. */
+  :global(body.tab-dragging),
+  :global(body.tab-dragging *) {
+    cursor: grabbing !important;
+    user-select: none !important;
   }
 
   /* Home tab */
@@ -590,13 +899,9 @@
     box-shadow: inset 3px 0 0 #22D3EE, 0 1px 3px rgba(0,0,0,0.2);
   }
 
-  .tabbar.side .tab.drag-over {
-    border-left: none;
-    border-top: 2px solid #0891B2;
-  }
-
-  :global(html.dark) .tabbar.side .tab.drag-over {
-    border-top-color: #22D3EE;
+  .tabbar.side .tab.tab-drag-gap {
+    width: 100%;
+    border-radius: 8px;
   }
 
   .tab-text {

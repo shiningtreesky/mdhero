@@ -3,6 +3,7 @@
   import { get } from "svelte/store";
   import { invoke } from "@tauri-apps/api/core";
   import { settings, fontFamilyMap, getContentMaxWidth } from "$lib/stores/settings";
+  import { A4_HEIGHT } from "$lib/utils/page";
   import { tocEntries, activeHeadingId, extractToc, isObserverPaused } from "$lib/stores/toc";
   import { aiLookup, setPendingSelection } from "$lib/stores/aiLookup";
   import { t, translate } from "$lib/i18n";
@@ -14,6 +15,7 @@
     html = "",
     onImageClick = (_src: string, _all: string[], _idx: number) => {},
     onLocalLink,
+    secondary = false,
   }: {
     html: string;
     onImageClick?: (src: string, allImages: string[], index: number) => void;
@@ -24,6 +26,12 @@
      * fall back to the external opener.
      */
     onLocalLink?: (href: string) => void;
+    /**
+     * The second copy of a document in the dual-pane layout. The shared TOC and
+     * the active-heading highlight follow the primary document, so this copy
+     * must not write into either.
+     */
+    secondary?: boolean;
   } = $props();
 
   /** True for hrefs that are real URLs (browser/mail/etc.), not filesystem paths. */
@@ -193,12 +201,13 @@
     tick().then(() => {
       if (!articleEl) return;
 
-      // Extract TOC entries
-      const entries = extractToc(articleEl);
-      tocEntries.set(entries);
-
-      // Set up intersection observer for active heading
-      setupTocObserver();
+      // The shared TOC and the active-heading highlight belong to the primary
+      // document, so the dual pane's second copy stays out of both.
+      if (!secondary) {
+        const entries = extractToc(articleEl);
+        tocEntries.set(entries);
+        setupTocObserver();
+      }
 
       // Add copy buttons to code blocks
       addCodeCopyButtons();
@@ -330,10 +339,11 @@
 
 <article
   bind:this={articleEl}
-  class="md-content prose prose-slate dark:prose-invert max-w-none mx-auto px-8 py-8 transition-all"
+  class="md-content sheet prose prose-slate dark:prose-invert max-w-none mx-auto px-8 py-8 transition-all"
   class:wrap-code={$settings.wrapCodeBlocks}
   style="
     max-width: {getContentMaxWidth($settings)};
+    min-height: {A4_HEIGHT}px;
     font-size: {$settings.fontSize}px;
     line-height: {$settings.lineHeight};
     font-family: {fontFamilyMap[$settings.fontFamily]};
@@ -349,7 +359,6 @@
 
   :global(html.dark) .md-content {
     color: #d1d1d6;
-    background: transparent;
   }
 
   /* Override any Tailwind prose white backgrounds in dark mode */

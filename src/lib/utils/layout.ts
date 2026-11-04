@@ -21,6 +21,12 @@ export function sideTabsWidth(s: Pick<ReaderSettings, "tabsPosition" | "tabsWidt
   return s.tabsPosition === "side" ? s.tabsWidth : 0;
 }
 
+/** The chrome height for a side tabs panel of that width: moving the tabs to
+ *  the side drops the tab row, so the document starts higher. */
+export function chromeTopFor(width: number): number {
+  return width > 0 ? SIDE_TABS_CHROME : TOP_TABS_CHROME;
+}
+
 /** Height of the chrome above the document, as currently published. */
 export function chromeTop(): number {
   const value = parseFloat(

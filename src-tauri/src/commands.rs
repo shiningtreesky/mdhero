@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 use tauri::{
+    ipc::Channel,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Manager,
 };
@@ -84,6 +86,195 @@ pub fn write_markdown_file(path: String, content: String) -> Result<(), String> 
     }
 
     fs::write(p, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+// ---------------------------------------------------------------------------
+// Translation
+// ---------------------------------------------------------------------------
+
+/// One message in an OpenAI-compatible chat request. The translation UI always
+/// sends a system prompt and a single user chunk, but the request models the
+/// full shape so the command stays useful for other models.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamChatRequest {
+    base_url: String,
+    api_key: String,
+    model: String,
+    messages: Vec<ChatMessage>,
+    temperature: Option<f32>,
+}
+
+/// Events streamed back to the webview over a Tauri channel.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum StreamEvent {
+    Delta { text: String },
+    Done,
+}
+
+/// Turn a user-supplied base URL into an OpenAI chat-completions URL. Accepts
+/// both `http://host:1234` and `http://host:1234/v1`, so users can paste either
+/// form from LM Studio / Ollama / OpenAI-compatible docs.
+fn chat_completions_url(base_url: &str) -> Result<String, String> {
+    let base = base_url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Err("Base URL is empty".into());
+    }
+    if !(base.starts_with("http://") || base.starts_with("https://")) {
+        return Err("Base URL must start with http:// or https://".into());
+    }
+    if base.ends_with("/chat/completions") {
+        Ok(base.to_string())
+    } else if base.ends_with("/v1") {
+        Ok(format!("{base}/chat/completions"))
+    } else {
+        Ok(format!("{base}/v1/chat/completions"))
+    }
+}
+
+/// Stream a chat completion. The request is made in Rust rather than from the
+/// webview so arbitrary LAN endpoints are not blocked by the app's CSP/CORS
+/// rules, and so the API key never has to pass through a browser fetch.
+#[tauri::command]
+pub async fn stream_chat_completion(
+    request: StreamChatRequest,
+    on_event: Channel<StreamEvent>,
+) -> Result<(), String> {
+    let StreamChatRequest {
+        base_url,
+        api_key,
+        model,
+        messages,
+        temperature,
+    } = request;
+
+    let url = chat_completions_url(&base_url)?;
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+        "temperature": temperature.unwrap_or(0.2),
+    });
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let mut req = client.post(&url).json(&body);
+    let key = api_key.trim();
+    if !key.is_empty() {
+        req = req.bearer_auth(key);
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("Request to {url} failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        let snippet: String = text.chars().take(600).collect();
+        return Err(format!("HTTP {status}: {snippet}"));
+    }
+
+    let is_sse = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("text/event-stream"))
+        .unwrap_or(false);
+
+    // Some OpenAI-compatible servers ignore `stream: true` and return a normal
+    // JSON body. Support that so a useful translation is not lost.
+    if !is_sse {
+        let text = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read response: {e}"))?;
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("Invalid JSON response: {e}"))?;
+        if let Some(message) = value["error"]["message"].as_str() {
+            return Err(message.to_string());
+        }
+        let content = value["choices"][0]["message"]["content"]
+            .as_str()
+            .or_else(|| value["choices"][0]["text"].as_str());
+        if let Some(content) = content {
+            on_event
+                .send(StreamEvent::Delta {
+                    text: content.to_string(),
+                })
+                .map_err(|e| format!("Could not send stream event: {e}"))?;
+        }
+        on_event
+            .send(StreamEvent::Done)
+            .map_err(|e| format!("Could not send stream event: {e}"))?;
+        return Ok(());
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut done = false;
+
+    'read: while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("Stream error: {e}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim_end_matches('\r').to_string();
+            buffer.drain(..=pos);
+
+            let Some(data) = line.strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data.is_empty() {
+                continue;
+            }
+            if data == "[DONE]" {
+                on_event
+                    .send(StreamEvent::Done)
+                    .map_err(|e| format!("Could not send stream event: {e}"))?;
+                done = true;
+                break 'read;
+            }
+
+            let value: serde_json::Value = match serde_json::from_str(data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if let Some(message) = value["error"]["message"].as_str() {
+                return Err(message.to_string());
+            }
+            if let Some(text) = value["choices"][0]["delta"]["content"].as_str() {
+                if !text.is_empty() {
+                    on_event
+                        .send(StreamEvent::Delta {
+                            text: text.to_string(),
+                        })
+                        .map_err(|e| format!("Could not send stream event: {e}"))?;
+                }
+            }
+        }
+    }
+
+    if !done {
+        on_event
+            .send(StreamEvent::Done)
+            .map_err(|e| format!("Could not send stream event: {e}"))?;
+    }
+
+    Ok(())
 }
 
 /// The current user's home directory.
@@ -893,5 +1084,45 @@ mod asset_scope_tests {
 
         let (allowed, _) = partition_assets(doc, &[s(&dir)], &[pic]);
         assert_eq!(allowed.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod translation_url_tests {
+    use super::chat_completions_url;
+
+    #[test]
+    fn appends_v1_and_chat_completions_to_a_bare_host() {
+        assert_eq!(
+            chat_completions_url("http://192.168.1.13:1234").unwrap(),
+            "http://192.168.1.13:1234/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("http://192.168.1.13:1234/").unwrap(),
+            "http://192.168.1.13:1234/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn accepts_a_base_that_already_ends_at_v1() {
+        assert_eq!(
+            chat_completions_url("http://localhost:1234/v1/").unwrap(),
+            "http://localhost:1234/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn accepts_a_full_chat_completions_url() {
+        assert_eq!(
+            chat_completions_url("https://api.example.com/v1/chat/completions").unwrap(),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_or_non_http_urls() {
+        assert!(chat_completions_url("").is_err());
+        assert!(chat_completions_url("192.168.1.13:1234").is_err());
+        assert!(chat_completions_url("ftp://example.com").is_err());
     }
 }

@@ -66,7 +66,7 @@ describe("tab session persistence", () => {
     const b = store.addTab("/docs/b.md", "b.md", "", "");
     store.addTab("/docs/c.md", "c.md", "", "");
 
-    store.reorderTabs(2, 0);
+    store.reorderTabs("left", 2, 0);
     expect(session().paths).toEqual(["/docs/c.md", "/docs/a.md", "/docs/b.md"]);
 
     store.closeTab(b);

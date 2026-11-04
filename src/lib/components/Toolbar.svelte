@@ -9,6 +9,10 @@
   import { t, translate } from "$lib/i18n";
   import ReaderControls from "./ReaderControls.svelte";
   import brandLogo from "$lib/assets/mdhero-icon.png";
+  import { Cog } from "@lucide/svelte";
+  import { speechState, toggleSpeech, changeSpeechSpeed } from "$lib/tts/speech";
+  import { ttsSettings } from "$lib/stores/tts";
+  import { TTS_MAX_SPEED, TTS_MIN_SPEED, TTS_SPEED_STEP } from "$lib/utils/tts";
 
   let {
     onPaste = () => {},
@@ -20,12 +24,20 @@
     dirty = false,
     canEdit = false,
     editMode = "view",
-    onSetMode = (_m: "view" | "split" | "edit") => {},
+    dual = false,
+    onSetMode = (_m: "view" | "split" | "dual" | "edit") => {},
     onSave = () => {},
     onOpenSettings = () => {},
     canPresent = false,
     presenting = false,
     onTogglePresent = () => {},
+    canTranslate = false,
+    translating = false,
+    translatingDirection = null,
+    translateProgress = null,
+    onTranslate = (_direction: "cn" | "en") => {},
+    onOpenTranslationSettings = () => {},
+    canSpeak = false,
   }: {
     onPaste?: () => void;
     onOpen?: () => void;
@@ -36,12 +48,23 @@
     dirty?: boolean;
     canEdit?: boolean;
     editMode?: "view" | "split" | "edit";
-    onSetMode?: (m: "view" | "split" | "edit") => void;
+    dual?: boolean;
+    onSetMode?: (m: "view" | "split" | "dual" | "edit") => void;
     onSave?: () => void;
     onOpenSettings?: () => void;
     canPresent?: boolean;
     presenting?: boolean;
     onTogglePresent?: () => void;
+    canTranslate?: boolean;
+    translating?: boolean;
+    translatingDirection?: "cn" | "en" | null;
+    /** Completion percentage (0-100) of the running translation. */
+    translateProgress?: number | null;
+    onTranslate?: (direction: "cn" | "en") => void;
+    onOpenTranslationSettings?: () => void;
+    /** There is an active tab whose text can be read; an empty document still
+     *  clicks through to a toast that says so. */
+    canSpeak?: boolean;
   } = $props();
 
   let currentHeading = $derived(
@@ -52,11 +75,27 @@
 
   let showReaderControls = $state(false);
   let showCopyMenu = $state(false);
+  let showSpeedPopover = $state(false);
   let copyFeedback = $state("");
+
+  let speechTitle = $derived(
+    !canSpeak || isEditing
+      ? isEditing
+        ? $t("toolbar.speechTitleEditing")
+        : $t("toolbar.speechTitleNoFile")
+      : $speechState === "playing"
+        ? $t("toolbar.pauseReading")
+        : $speechState === "paused"
+          ? $t("toolbar.resumeReading")
+          : $speechState === "loading"
+            ? $t("toolbar.stopReading")
+            : $t("toolbar.readAloud"),
+  );
 
   function closeAll() {
     showReaderControls = false;
     showCopyMenu = false;
+    showSpeedPopover = false;
   }
 
   function toggleReaderControls() {
@@ -69,6 +108,21 @@
     const next = !showCopyMenu;
     closeAll();
     showCopyMenu = next;
+  }
+
+  function toggleSpeedPopover() {
+    const next = !showSpeedPopover;
+    closeAll();
+    showSpeedPopover = next;
+  }
+
+  function handleSpeechToggle() {
+    closeAll();
+    toggleSpeech();
+  }
+
+  function handleSpeedInput(event: Event) {
+    changeSpeechSpeed(Number((event.currentTarget as HTMLInputElement).value));
   }
 
   function handleThemeToggle() {
@@ -165,6 +219,15 @@
         onclick={() => onSetMode('split')}
         disabled={!canEdit}
       >{$t('toolbar.split')}</button>
+      <!-- Dual is a second column, not a left-pane mode: it stays highlighted
+           while the left column switches between view and edit. It needs a
+           document, not an editable one, so URL and paste tabs work too. -->
+      <button
+        class="mode-seg"
+        class:active={dual}
+        onclick={() => onSetMode('dual')}
+        disabled={!$document.filePath}
+      >{$t('toolbar.dual')}</button>
       <button
         class="mode-seg"
         class:active={editMode === 'edit'}
@@ -175,6 +238,100 @@
   </div>
 
   <div class="toolbar-right">
+    <!-- Read the whole active tab aloud: play/pause on the left of the
+         translation buttons, with the rate control next to it. -->
+    <div class="speech-group" role="group" aria-label={$t('toolbar.readAloud')}>
+      <button
+        onclick={handleSpeechToggle}
+        class="btn btn-icon speech-btn"
+        class:active={$speechState !== "idle"}
+        disabled={!canSpeak || isEditing}
+        title={speechTitle}
+        aria-label={speechTitle}
+      >
+        {#if $speechState === "playing"}
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <rect x="4" y="2.5" width="3" height="11" rx="0.8"/>
+            <rect x="9" y="2.5" width="3" height="11" rx="0.8"/>
+          </svg>
+        {:else if $speechState === "loading"}
+          <svg class="spin" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2"/>
+            <circle cx="8" cy="8" r="6.2" opacity="0.25"/>
+          </svg>
+        {:else}
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M5 2.6a.6.6 0 0 1 .9-.5l7.6 5a.6.6 0 0 1 0 1l-7.6 5a.6.6 0 0 1-.9-.5z"/>
+          </svg>
+        {/if}
+      </button>
+
+      <div class="relative">
+        <button
+          onclick={toggleSpeedPopover}
+          class="btn speed-btn"
+          title={$t('toolbar.speechRate')}
+          aria-label={$t('toolbar.speechRateAria')}
+          aria-expanded={showSpeedPopover}
+        >{($ttsSettings.speed).toFixed(1)}×</button>
+
+        {#if showSpeedPopover}
+          <div class="speed-popover" role="group" aria-label={$t('toolbar.speechRateAria')}>
+            <div class="speed-popover-head">
+              <span>{$t('toolbar.speechRate')}</span>
+              <span class="speed-value">{($ttsSettings.speed).toFixed(1)}×</span>
+            </div>
+            <input
+              class="speed-slider"
+              type="range"
+              min={TTS_MIN_SPEED}
+              max={TTS_MAX_SPEED}
+              step={TTS_SPEED_STEP}
+              value={$ttsSettings.speed}
+              oninput={handleSpeedInput}
+              aria-label={$t('toolbar.speechRateAria')}
+            />
+            <div class="speed-scale">
+              <span>{TTS_MIN_SPEED.toFixed(1)}×</span>
+              <span>{TTS_MAX_SPEED.toFixed(1)}×</span>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <div class="separator"></div>
+
+    <div class="translate-group" role="group" aria-label={$t('toolbar.translationSettings')}>
+      <button
+        onclick={() => { closeAll(); onTranslate("cn"); }}
+        class="btn translate-btn"
+        class:active={translatingDirection === "cn"}
+        disabled={!canTranslate || translating}
+        title={translating ? $t('toolbar.translating') : $t('toolbar.translateCn')}
+        aria-label={$t('toolbar.translateCn')}
+      >cn{#if translating && translatingDirection === "cn" && translateProgress !== null}<span class="translate-progress">{translateProgress}%</span>{/if}</button>
+      <button
+        onclick={() => { closeAll(); onTranslate("en"); }}
+        class="btn translate-btn"
+        class:active={translatingDirection === "en"}
+        disabled={!canTranslate || translating}
+        title={translating ? $t('toolbar.translating') : $t('toolbar.translateEn')}
+        aria-label={$t('toolbar.translateEn')}
+      >en{#if translating && translatingDirection === "en" && translateProgress !== null}<span class="translate-progress">{translateProgress}%</span>{/if}</button>
+      <button
+        onclick={() => { closeAll(); onOpenTranslationSettings(); }}
+        class="btn btn-icon translate-settings-btn"
+        disabled={translating}
+        title={$t('toolbar.translationSettings')}
+        aria-label={$t('toolbar.translationSettings')}
+      >
+        <Cog size={18} />
+      </button>
+    </div>
+
+    <div class="separator"></div>
+
     <button
       onclick={toggleToc}
       class="btn btn-icon"
@@ -347,7 +504,7 @@
   </div>
 </header>
 
-{#if showCopyMenu || showReaderControls}
+{#if showCopyMenu || showReaderControls || showSpeedPopover}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-[9]" onclick={closeAll} onkeydown={() => {}}></div>
 {/if}
@@ -404,6 +561,173 @@
     display: flex;
     align-items: center;
     gap: 2px;
+  }
+
+  .translate-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .speech-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .speech-btn {
+    padding: 4px 8px;
+  }
+
+  /* While loading, a click cancels the pending playback, so keep it clickable. */
+  .speech-btn.active:disabled {
+    opacity: 0.7;
+    cursor: default;
+  }
+
+  .speed-btn {
+    padding: 4px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #3a3a3c;
+    background: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .speed-btn:hover {
+    background: #f2f2f7;
+  }
+
+  :global(html.dark) .speed-btn {
+    color: #aeaeb2;
+  }
+
+  :global(html.dark) .speed-btn:hover {
+    background: #2c2c2e;
+  }
+
+  .speed-popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    width: 196px;
+    padding: 10px 12px 8px;
+    background: white;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+    z-index: 50;
+  }
+
+  :global(html.dark) .speed-popover {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .speed-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #5f6368;
+    margin-bottom: 6px;
+  }
+
+  :global(html.dark) .speed-popover-head {
+    color: #aeaeb2;
+  }
+
+  .speed-value {
+    font-weight: 600;
+    color: #0891b2;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :global(html.dark) .speed-value {
+    color: #22d3ee;
+  }
+
+  .speed-slider {
+    width: 100%;
+    accent-color: #0891b2;
+    cursor: pointer;
+  }
+
+  .speed-scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-size: 10px;
+    color: #aeaeb2;
+  }
+
+  .spin {
+    animation: speech-spin 0.9s linear infinite;
+    transform-origin: 50% 50%;
+  }
+
+  @keyframes speech-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .translate-btn {
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #0891b2;
+    background: #e5f5f8;
+  }
+
+  .translate-btn:hover:not(:disabled):not(.active) {
+    background: #d4eef3;
+    color: #0e7490;
+  }
+
+  .translate-btn.active {
+    background: #0891b2;
+    color: #ffffff;
+  }
+
+  .translate-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* The button running the translation stays legible so its progress is
+     readable, even though it is disabled against repeat clicks. */
+  .translate-btn.active:disabled {
+    opacity: 1;
+    cursor: default;
+  }
+
+  .translate-progress {
+    margin-left: 4px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :global(html.dark) .translate-btn {
+    color: #22d3ee;
+    background: #0a1e2e;
+  }
+
+  :global(html.dark) .translate-btn:hover:not(:disabled):not(.active) {
+    background: #14304a;
+  }
+
+  :global(html.dark) .translate-btn.active {
+    background: #0891b2;
+    color: #ffffff;
+  }
+
+  .translate-settings-btn {
+    padding: 5px 8px;
   }
 
   /* Centered mode switcher: absolutely centered in the toolbar so it stays put
