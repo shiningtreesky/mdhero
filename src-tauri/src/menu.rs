@@ -187,10 +187,33 @@ pub fn create_menu_with_labels<R: Runtime>(
         ],
     )?;
 
+    // Submenu titles are not clickable on Windows, so the panel is reached
+    // through the single item inside it (same event channel as the other menus).
+    let shortcuts_menu = Submenu::with_items(
+        app,
+        tr(labels, "menu.shortcuts", "Keyboard Shortcuts"),
+        true,
+        &[&MenuItem::with_id(
+            app,
+            "shortcuts",
+            tr(labels, "menu.shortcutsSettings", "Shortcut Settings..."),
+            true,
+            None::<&str>,
+        )?],
+    )?;
+
     #[cfg(not(target_os = "linux"))]
-    let items: [&dyn IsMenuItem<R>; 5] = [&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu];
+    let items: [&dyn IsMenuItem<R>; 6] = [
+        &app_menu,
+        &file_menu,
+        &edit_menu,
+        &view_menu,
+        &window_menu,
+        &shortcuts_menu,
+    ];
     #[cfg(target_os = "linux")]
-    let items: [&dyn IsMenuItem<R>; 4] = [&app_menu, &file_menu, &edit_menu, &view_menu];
+    let items: [&dyn IsMenuItem<R>; 5] =
+        [&app_menu, &file_menu, &edit_menu, &view_menu, &shortcuts_menu];
 
     let menu = Menu::with_items(app, &items)?;
 

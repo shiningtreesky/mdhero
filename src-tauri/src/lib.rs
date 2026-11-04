@@ -203,6 +203,9 @@ pub fn run() {
                         "check_updates" => {
                             let _ = window.eval("window.__mdhero_check_updates?.()");
                         }
+                        "shortcuts" => {
+                            let _ = window.eval("window.__mdhero_shortcuts?.()");
+                        }
                         "about" => {
                             let _ = window.eval("window.__mdhero_about?.()");
                         }

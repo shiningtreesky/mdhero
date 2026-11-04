@@ -47,6 +47,7 @@
   import OpenDialog from "$lib/components/OpenDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import TranslationSettings from "$lib/components/TranslationSettings.svelte";
+  import ShortcutSettings from "$lib/components/ShortcutSettings.svelte";
   import LanguageDialog from "$lib/components/LanguageDialog.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import CustomPromptModal from "$lib/components/CustomPromptModal.svelte";
@@ -72,6 +73,9 @@
   import { A4_HEIGHT, A4_WIDTH, SIDE_COLUMN_WIDTH, type PageLayout } from "$lib/utils/page";
   import { fitWindowToPage } from "$lib/tauri/page-window";
   import { saveProgress, getProgress } from "$lib/stores/readingProgress";
+  import { shortcuts } from "$lib/stores/shortcuts";
+  import { matchesShortcut } from "$lib/utils/shortcut";
+  import { toggleSpeech } from "$lib/tts/speech";
 
   let rendererReady = $state(false);
   let searchVisible = $state(false);
@@ -80,6 +84,7 @@
   let openVisible = $state(false);
   let settingsVisible = $state(false);
   let translationSettingsVisible = $state(false);
+  let shortcutSettingsVisible = $state(false);
   let translating = $state(false);
   let translatingDirection = $state<"cn" | "en" | null>(null);
   let translatingProgress = $state<number | null>(null);
@@ -115,7 +120,7 @@
   // ESC handler. Each modal's own ESC handler also calls stopPropagation(); the
   // two together cover both focus-inside and focus-outside-modal cases.
   let anyModalVisible = $derived(
-    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
+    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible
   );
 
   // Reading progress: debounced scroll save + restore guard
@@ -841,6 +846,10 @@
       saveProgressNow();
       invoke("quit_app").catch(() => {});
     };
+    // 设置快捷键 menu item: open the shortcut settings panel.
+    (window as any).__mdhero_shortcuts = () => {
+      shortcutSettingsVisible = true;
+    };
     (window as any).__mdhero_check_updates = async () => {
       if (get(checkInFlight)) return;
       // Reset dismissal so a manual check always re-surfaces an available update.
@@ -1085,6 +1094,16 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    // Play/pause reading (Settings → keyboard shortcuts). Global by design;
+    // matchesShortcut already rejects key repeat and modifier combinations.
+    if (matchesShortcut(e, $shortcuts.playPause)) {
+      // Do not eat the key inside a text field: backquote is a markdown code
+      // fence. The shortcut still fires there (the user accepted that trade-off).
+      if (!isInputFocused()) e.preventDefault();
+      if (!shortcutSettingsVisible) toggleSpeech();
+      return;
+    }
+
     // Cmd+1-9 tab switching, inside the column being worked in.
     if ((e.metaKey || e.ctrlKey) && e.key >= "1" && e.key <= "9") {
       e.preventDefault();
@@ -1421,6 +1440,7 @@
   <OpenDialog bind:visible={openVisible} />
   <SettingsDialog bind:visible={settingsVisible} />
   <TranslationSettings bind:visible={translationSettingsVisible} />
+  <ShortcutSettings bind:visible={shortcutSettingsVisible} />
   <LanguageDialog bind:visible={languageVisible} />
   <AboutDialog bind:visible={aboutVisible} />
   <CustomPromptModal bind:visible={customPromptVisible} selection={customPromptSelection} />

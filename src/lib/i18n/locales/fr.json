@@ -386,7 +386,18 @@
     "selectAll": "Tout sélectionner",
     "fullscreen": "Passer en plein écran",
     "minimize": "Réduire",
-    "maximize": "Agrandir"
+    "maximize": "Agrandir",
+    "shortcuts": "Raccourcis clavier",
+    "shortcutsSettings": "Configurer les raccourcis..."
+  },
+  "shortcuts": {
+    "title": "Raccourcis clavier",
+    "description": "Cliquez sur Modifier puis appuyez sur la touche voulue. Les combinaisons avec Ctrl, Alt, Shift ou Cmd ne sont pas acceptées.",
+    "playPause": "Lire / mettre en pause la lecture",
+    "change": "Modifier",
+    "recording": "Appuyez sur une touche...",
+    "hint": "Le raccourci fonctionne partout dans l'application, même quand l'éditeur a le focus.",
+    "restoreDefault": "Rétablir la valeur par défaut"
   },
   "files": {
     "openFailed": "Impossible d'ouvrir le fichier : {err}",

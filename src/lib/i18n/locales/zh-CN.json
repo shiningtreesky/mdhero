@@ -384,7 +384,18 @@
     "selectAll": "全选",
     "fullscreen": "进入全屏",
     "minimize": "最小化",
-    "maximize": "最大化"
+    "maximize": "最大化",
+    "shortcuts": "设置快捷键",
+    "shortcutsSettings": "快捷键设置..."
+  },
+  "shortcuts": {
+    "title": "设置快捷键",
+    "description": "点击“更改”，然后按下想用的按键。带 Ctrl、Alt、Shift 或 ⌘ 的组合键不会被记录。",
+    "playPause": "播放 / 暂停朗读",
+    "change": "更改",
+    "recording": "请按下按键...",
+    "hint": "快捷键在整个应用内生效，编辑器获得焦点时同样会触发。",
+    "restoreDefault": "恢复默认"
   },
   "files": {
     "openFailed": "无法打开文件：{err}",

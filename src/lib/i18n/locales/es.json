@@ -386,7 +386,18 @@
     "selectAll": "Seleccionar todo",
     "fullscreen": "Pantalla completa",
     "minimize": "Minimizar",
-    "maximize": "Maximizar"
+    "maximize": "Maximizar",
+    "shortcuts": "Atajos de teclado",
+    "shortcutsSettings": "Configurar atajos..."
+  },
+  "shortcuts": {
+    "title": "Atajos de teclado",
+    "description": "Haz clic en Cambiar y pulsa la tecla que quieras usar. No se aceptan combinaciones con Ctrl, Alt, Shift o Cmd.",
+    "playPause": "Reproducir / pausar lectura",
+    "change": "Cambiar",
+    "recording": "Pulsa una tecla...",
+    "hint": "El atajo funciona en toda la aplicación, incluso con el editor enfocado.",
+    "restoreDefault": "Restaurar predeterminado"
   },
   "files": {
     "openFailed": "No se pudo abrir el archivo: {err}",

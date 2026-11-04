@@ -386,7 +386,18 @@
     "selectAll": "Select All",
     "fullscreen": "Enter Full Screen",
     "minimize": "Minimize",
-    "maximize": "Maximize"
+    "maximize": "Maximize",
+    "shortcuts": "Keyboard Shortcuts",
+    "shortcutsSettings": "Shortcut Settings..."
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "description": "Click Change, then press the key you want to use. Combinations with Ctrl, Alt, Shift or Cmd are not accepted.",
+    "playPause": "Play / Pause reading",
+    "change": "Change",
+    "recording": "Press a key...",
+    "hint": "The shortcut works everywhere in the app, including while the editor is focused.",
+    "restoreDefault": "Restore default"
   },
   "files": {
     "openFailed": "Failed to open file: {err}",

@@ -386,7 +386,18 @@
     "selectAll": "Alles auswählen",
     "fullscreen": "Vollbild",
     "minimize": "Minimieren",
-    "maximize": "Maximieren"
+    "maximize": "Maximieren",
+    "shortcuts": "Tastenkürzel",
+    "shortcutsSettings": "Tastenkürzel einstellen..."
+  },
+  "shortcuts": {
+    "title": "Tastenkürzel",
+    "description": "Auf „Ändern“ klicken und dann die gewünschte Taste drücken. Kombinationen mit Ctrl, Alt, Shift oder Cmd werden nicht übernommen.",
+    "playPause": "Vorlesen starten / pausieren",
+    "change": "Ändern",
+    "recording": "Taste drücken...",
+    "hint": "Das Kürzel gilt in der ganzen App, auch wenn der Editor den Fokus hat.",
+    "restoreDefault": "Standard wiederherstellen"
   },
   "files": {
     "openFailed": "Datei konnte nicht geöffnet werden: {err}",
