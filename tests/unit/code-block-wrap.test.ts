@@ -23,7 +23,7 @@ describe("wrapCodeBlocks setting", () => {
   });
 
   it("keeps scrolling for settings saved before the option existed", async () => {
-    const stored = JSON.stringify({ fontSize: 18, closeOnEscape: false });
+    const stored = JSON.stringify({ fontSize: 18, restoreTabsOnLaunch: false });
     expect((await loadSettingsWith(stored)).wrapCodeBlocks).toBe(false);
   });
 

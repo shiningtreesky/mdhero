@@ -369,6 +369,14 @@ export function createGlossaryBrowser(
     hideBubble();
   }
 
+  /** Escape dismisses the open word bubble so it stops covering the text. */
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || bubble.style.display === "none") return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideBubble();
+  }
+
   // --- fallback: wrap words in inline spans -------------------------------
   const wrapped: HTMLElement[] = [];
   let idleHandle: number | null = null;
@@ -452,6 +460,7 @@ export function createGlossaryBrowser(
   }
   container.addEventListener("click", onClick, true);
   document.addEventListener("pointerdown", onDocumentPointerDown, true);
+  document.addEventListener("keydown", onKeydown, true);
   // Capture so scrolls inside the article's own scroll container (which do not
   // bubble to window) still keep the bubble glued to its word.
   window.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
@@ -474,6 +483,7 @@ export function createGlossaryBrowser(
       container.removeEventListener("mouseout", fallbackOut);
       container.removeEventListener("click", onClick, true);
       document.removeEventListener("pointerdown", onDocumentPointerDown, true);
+      document.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
       if (!useHighlight) {

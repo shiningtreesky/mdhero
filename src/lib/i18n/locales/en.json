@@ -354,8 +354,6 @@
   "settings": {
     "title": "Settings",
     "behavior": "Behavior",
-    "closeOnEscape": "Close on Escape",
-    "closeOnEscapeHint": "Press ESC to close the current tab. App quits after the last tab.",
     "restoreTabs": "Restore tabs on launch",
     "restoreTabsHint": "Reopen the files that were open last time, in the same order.",
     "openInExistingWindow": "Open files in the existing window",

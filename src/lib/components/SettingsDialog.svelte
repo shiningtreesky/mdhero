@@ -73,19 +73,6 @@
 
           <label class="setting-row">
             <div class="setting-text">
-              <span class="setting-label">{$t('settings.closeOnEscape')}</span>
-              <span class="setting-hint">{$t('settings.closeOnEscapeHint')}</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={$settings.closeOnEscape}
-              onchange={(e) => settings.update((s) => ({ ...s, closeOnEscape: e.currentTarget.checked }))}
-              class="setting-switch"
-            />
-          </label>
-
-          <label class="setting-row">
-            <div class="setting-text">
               <span class="setting-label">{$t('settings.restoreTabs')}</span>
               <span class="setting-hint">{$t('settings.restoreTabsHint')}</span>
             </div>

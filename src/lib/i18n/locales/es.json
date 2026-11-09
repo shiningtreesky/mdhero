@@ -354,8 +354,6 @@
   "settings": {
     "title": "Configuración",
     "behavior": "Comportamiento",
-    "closeOnEscape": "Cerrar con Escape",
-    "closeOnEscapeHint": "Pulsa ESC para cerrar la pestaña actual. La aplicación se cierra tras la última pestaña.",
     "restoreTabs": "Restaurar pestañas al iniciar",
     "restoreTabsHint": "Volver a abrir los archivos de la última vez, en el mismo orden.",
     "openInExistingWindow": "Abrir los archivos en la ventana existente",

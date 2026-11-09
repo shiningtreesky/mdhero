@@ -354,8 +354,6 @@
   "settings": {
     "title": "Einstellungen",
     "behavior": "Verhalten",
-    "closeOnEscape": "Mit Esc schließen",
-    "closeOnEscapeHint": "Drücken Sie Esc, um den aktuellen Tab zu schließen. Die App beendet sich nach dem letzten Tab.",
     "restoreTabs": "Tabs beim Start wiederherstellen",
     "restoreTabsHint": "Die zuletzt geöffneten Dateien in derselben Reihenfolge wieder öffnen.",
     "openInExistingWindow": "Dateien im vorhandenen Fenster öffnen",

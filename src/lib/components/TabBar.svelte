@@ -454,9 +454,9 @@
     }
   }
 
-  // Escape dismisses the menu and nothing else. The page's own Escape handler
-  // listens on window too, but in the bubble phase, so without this it would
-  // also close the active tab (close-on-Escape setting).
+  // Escape dismisses the menu and nothing else. Capture runs before the page's
+  // window-level handler, so the key never also exits a full-screen mode while
+  // the menu is up.
   function handleMenuKeydown(e: KeyboardEvent) {
     if (e.key !== "Escape" || !contextMenuTab) return;
     e.preventDefault();

@@ -442,6 +442,14 @@ export function createSentenceBrowser(
     hideBubble();
   }
 
+  /** Escape dismisses the open sentence bubble so it stops covering the text. */
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || bubble.style.display === "none") return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideBubble();
+  }
+
   // --- fallback: wrap sentence fragments in inline spans -------------------
   function clearFallbackHover(): void {
     if (!fallbackHoverId) return;
@@ -566,6 +574,7 @@ export function createSentenceBrowser(
   }
   container.addEventListener("click", onClick, true);
   document.addEventListener("pointerdown", onDocumentPointerDown, true);
+  document.addEventListener("keydown", onKeydown, true);
   // Capture so scrolls inside the article's own scroll container (which do not
   // bubble to window) still keep the bubble glued to its sentence.
   window.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
@@ -590,6 +599,7 @@ export function createSentenceBrowser(
       container.removeEventListener("mouseout", fallbackOut);
       container.removeEventListener("click", onClick, true);
       document.removeEventListener("pointerdown", onDocumentPointerDown, true);
+      document.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
       if (!useHighlight) {

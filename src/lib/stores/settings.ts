@@ -7,7 +7,6 @@ export interface ReaderSettings {
   fontFamily: "sans" | "serif" | "mono";
   maxWidth: number;
   widthMode: "comfortable" | "wide";
-  closeOnEscape: boolean;
   showLineNumbers: boolean;
   /** Color the Markdown syntax in the editor (#73). */
   syntaxHighlighting: boolean;
@@ -87,7 +86,6 @@ function loadSettings(): ReaderSettings {
     fontFamily: "sans",
     maxWidth: DEFAULT_MAX_WIDTH,
     widthMode: "comfortable",
-    closeOnEscape: true,
     showLineNumbers: true,
     syntaxHighlighting: true,
     autoPresentMarp: true,
@@ -111,7 +109,6 @@ function loadSettings(): ReaderSettings {
         maxWidth: clamp(storedMaxWidth, MIN_MAX_WIDTH, MAX_MAX_WIDTH),
         widthMode: parsed.widthMode === "wide" ? "wide" : "comfortable",
         tocWidth: clampTocWidth(parsed.tocWidth),
-        closeOnEscape: storedBoolean(parsed.closeOnEscape, defaults.closeOnEscape),
         showLineNumbers: storedBoolean(parsed.showLineNumbers, defaults.showLineNumbers),
         syntaxHighlighting: storedBoolean(parsed.syntaxHighlighting, defaults.syntaxHighlighting),
         autoPresentMarp: storedBoolean(parsed.autoPresentMarp, defaults.autoPresentMarp),

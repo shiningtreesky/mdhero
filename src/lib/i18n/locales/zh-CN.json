@@ -353,8 +353,6 @@
   "settings": {
     "title": "设置",
     "behavior": "行为",
-    "closeOnEscape": "按 ESC 关闭",
-    "closeOnEscapeHint": "按 ESC 关闭当前标签页。关闭最后一个标签页后退出应用。",
     "restoreTabs": "启动时恢复标签页",
     "restoreTabsHint": "按相同顺序重新打开上次打开的文件。",
     "openInExistingWindow": "在现有窗口中打开文件",

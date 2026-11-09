@@ -153,15 +153,6 @@
   let lightboxImages = $state<string[]>([]);
   let lightboxIndex = $state(0);
 
-  // Aggregated flag for any modal/overlay being visible. The close-on-ESC gate
-  // and any future "is the user mid-interaction?" check should read this so a
-  // new modal can't silently miss the gate by being added to state but not the
-  // ESC handler. Each modal's own ESC handler also calls stopPropagation(); the
-  // two together cover both focus-inside and focus-outside-modal cases.
-  let anyModalVisible = $derived(
-    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || glossarySettingsVisible || graderSettingsVisible || scorePanelVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible || $parasMode || parasCardOpen
-  );
-
   // Reading progress: debounced scroll save + restore guard
   let isRestoring = false;
   let restoreTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1083,23 +1074,6 @@
     }
   }
 
-  // Close-on-ESC: close the active file tab, and quit the app if it was the last
-  // one (on macOS closing the window alone leaves the app in the dock). Async
-  // because the dirty-confirm dialog is — a cancelled discard must not quit.
-  async function closeActiveTabOnEscape() {
-    const tabsBeforeClose = $tabs.length;
-    if (activeTab && activeTab.id !== HOME_TAB_ID) {
-      const closed = await handleCloseTab(activeTab.id);
-      if (closed && tabsBeforeClose === 1) {
-        invoke("quit_app").catch(() => {});
-      }
-    } else if (tabsBeforeClose === 0) {
-      // Active is home tab and no file tabs are open → quit
-      invoke("quit_app").catch(() => {});
-    }
-    // Else: home tab is active with file tabs in background — do nothing.
-  }
-
   onMount(() => {
     initRenderer();
     rendererReady = true;
@@ -1547,26 +1521,13 @@
       return;
     }
 
-    // Escape — close panels, then optionally close-tab-on-ESC
+    // Escape — leave the full-screen modes. ESC never closes a document: the
+    // 词/句/段 reading popups own it while open (their own document-level
+    // handlers close them and stop the event), and the other modals dismiss
+    // themselves. This handler only handles the page-wide modes.
     if (e.key === "Escape") {
-      if (zenMode) { zenMode = false; return; }
-
-      // Exit the Marp slideshow before any modal/close-tab handling (#44).
-      if (presenting) { presenting = false; return; }
-
-      // Modals/overlays consume ESC first. Inner handlers stopPropagation when focus
-      // is inside them; this guard covers the focus-outside case (modal visible but
-      // user clicked elsewhere) so we don't nuke the tab while a modal is still up.
-      // Add new modals to `anyModalVisible` (see top of script) to keep this safe.
-      if (anyModalVisible) return;
-
-      // Close-on-ESC: opt-in setting. Ignore in edit mode and when an input is focused
-      // (so users typing in search/paste/etc. don't accidentally trigger it).
-      if ($settings.closeOnEscape && !activeTab?.isEditing && !isInputFocused()) {
-        // handleCloseTab is async (native dirty-confirm dialog), so the
-        // quit-on-last-tab decision runs in an async helper.
-        closeActiveTabOnEscape();
-      }
+      if (zenMode) zenMode = false;
+      else if (presenting) presenting = false;
       return;
     }
 

@@ -354,8 +354,6 @@
   "settings": {
     "title": "Paramètres",
     "behavior": "Comportement",
-    "closeOnEscape": "Fermer avec Échap",
-    "closeOnEscapeHint": "Appuyez sur Échap pour fermer l'onglet actif. L'application se ferme après le dernier onglet.",
     "restoreTabs": "Restaurer les onglets au démarrage",
     "restoreTabsHint": "Rouvrir les fichiers ouverts la dernière fois, dans le même ordre.",
     "openInExistingWindow": "Ouvrir les fichiers dans la fenêtre existante",

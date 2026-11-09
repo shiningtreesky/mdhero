@@ -17,7 +17,6 @@ afterEach(() => {
 
 // Every on/off setting, with its default.
 const BOOLEANS = [
-  ["closeOnEscape", true],
   ["showLineNumbers", true],
   ["syntaxHighlighting", true],
   ["autoPresentMarp", true],
