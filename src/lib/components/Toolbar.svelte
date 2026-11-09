@@ -53,6 +53,10 @@
     glossTitle = "",
     onToggleGloss = () => {},
     onOpenGlossSettings = () => {},
+    /** Pin: keep every clicked word's gloss on screen while 词 mode is on. */
+    glossPinActive = false,
+    glossPinTitle = "",
+    onToggleGlossPin = () => {},
     /** Sentence reading ("句") mode: same interactions as 词, one sentence at a time. */
     canSentence = false,
     sentenceActive = false,
@@ -113,6 +117,9 @@
     onToggleGloss?: () => void;
     /** Long-press / right-click on the 词 button opens its own endpoint panel. */
     onOpenGlossSettings?: () => void;
+    glossPinActive?: boolean;
+    glossPinTitle?: string;
+    onToggleGlossPin?: () => void;
     canSentence?: boolean;
     sentenceActive?: boolean;
     sentenceTitle?: string;
@@ -542,6 +549,24 @@
       onpointercancel={cancelGlossPress}
       oncontextmenu={handleGlossContextMenu}
     >{$t('toolbar.gloss')}</button>
+
+    <!-- Pin: with 词 mode on, clicked words keep their highlight and gloss
+         bubble until Ctrl/Cmd+click removes them. ESC hides the bubbles but
+         leaves the highlights. -->
+    <button
+      class="btn gloss-btn gloss-pin-btn"
+      class:active={glossPinActive}
+      disabled={!canGloss}
+      title={glossPinTitle}
+      aria-label={$t('toolbar.glossPin')}
+      aria-pressed={glossPinActive}
+      onclick={onToggleGlossPin}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z" />
+        <path d="M12 14v7" />
+      </svg>
+    </button>
 
     <div class="separator"></div>
 
@@ -1067,6 +1092,14 @@
   .gloss-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  /* The pin shares the 词 group's amber active state but holds only an icon. */
+  .gloss-pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 7px;
   }
 
   /* 8/23 progress inside the 段 button. */

@@ -78,8 +78,16 @@ export function caretAtPoint(x: number, y: number): CaretHit | null {
 }
 
 /** Keep the bubble glued to the range: below it by default, flipped above when
- *  the viewport bottom would clip it, and clamped horizontally. */
-export function placeBubbleAt(bubble: HTMLElement, rect: DOMRect): void {
+ *  the viewport bottom would clip it, and clamped horizontally.
+ *
+ *  `occupied` lists bubbles already on screen (the pinned 词 mode). A bubble
+ *  that would overlap one is shifted below it — or above it near the viewport
+ *  edge — so neighbouring definitions stay readable. */
+export function placeBubbleAt(
+  bubble: HTMLElement,
+  rect: DOMRect,
+  occupied: DOMRect[] = [],
+): void {
   if (rect.width === 0 && rect.height === 0) {
     bubble.style.display = "none";
     return;
@@ -92,7 +100,34 @@ export function placeBubbleAt(bubble: HTMLElement, rect: DOMRect): void {
   let top = rect.bottom + 4;
   if (top + height > window.innerHeight - 6) top = rect.top - height - 4;
   if (top < 4) top = rect.bottom + 4;
+
+  if (occupied.length > 0) {
+    const gap = 4;
+    const overlaps = (candidateTop: number): DOMRect | undefined => {
+      const right = left + width;
+      const bottom = candidateTop + height;
+      return occupied.find(
+        (other) =>
+          left < other.right + gap &&
+          right > other.left - gap &&
+          candidateTop < other.bottom + gap &&
+          bottom > other.top - gap,
+      );
+    };
+    let hit = overlaps(top);
+    // Bounded: pinned bubbles are a handful, and each retry clears one overlap.
+    for (let guard = 0; hit && guard < 20; guard++) {
+      const below = hit.bottom + gap;
+      const above = hit.top - height - gap;
+      if (below + height <= window.innerHeight - 6) top = below;
+      else if (above >= 4) top = above;
+      else break;
+      hit = overlaps(top);
+    }
+  }
+
   left = Math.max(6, Math.min(left, window.innerWidth - width - 6));
+  top = Math.max(4, Math.min(top, window.innerHeight - height - 6));
   bubble.style.left = `${left}px`;
   bubble.style.top = `${top}px`;
   bubble.style.visibility = "visible";

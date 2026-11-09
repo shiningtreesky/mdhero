@@ -17,6 +17,7 @@ import {
   collectTextNodes,
   excluded,
   placeBubble,
+  placeBubbleAt,
   supportsHighlight,
   type CaretHit,
 } from "./shared";
@@ -40,12 +41,33 @@ import {
  */
 
 const HOVER_NAME = "mdhero-gloss-hover";
+const PINNED_NAME = "mdhero-gloss-pinned";
 const STYLE_ID = "mdhero-gloss-style";
 const BUBBLE_CLASS = "mdhero-gloss-bubble";
 const WORD_CLASS = "mdhero-gloss-word";
 const HOVER_CLASS = "mdhero-gloss-hover";
+const PINNED_CLASS = "mdhero-gloss-pinned";
 
 let memoryHintShown = false;
+
+/** `CSS.highlights` is global, and both reading panes can run a glossary
+ *  action at once. Each action contributes its pinned ranges here; the named
+ *  highlight is rebuilt whole so one pane cannot clobber the other. */
+const pinnedRanges = new Map<object, Range[]>();
+
+function rebuildPinnedHighlight(
+  registry: Map<string, unknown> | undefined,
+  Ctor: (new (...ranges: Range[]) => unknown) | undefined,
+): void {
+  if (!registry || !Ctor) return;
+  const ranges: Range[] = [];
+  for (const list of pinnedRanges.values()) ranges.push(...list);
+  if (ranges.length === 0) {
+    registry.delete(PINNED_NAME);
+    return;
+  }
+  registry.set(PINNED_NAME, new Ctor(...ranges));
+}
 
 export interface GlossaryParams {
   /** Mode on, reading pane, and the document is English. */
@@ -53,6 +75,8 @@ export interface GlossaryParams {
   /** Identifies the cache; paste/URL tabs use it for the localStorage key. */
   tabId: string | null;
   filePath: string | null;
+  /** Keep clicked words' glosses on screen instead of replacing one bubble. */
+  pinned?: boolean;
 }
 
 interface WordHit {
@@ -61,8 +85,20 @@ interface WordHit {
   range: Range;
 }
 
+interface PinnedEntry {
+  node: Text;
+  token: WordToken;
+  range: Range;
+  bubble: HTMLDivElement;
+  /** ESC hides every pinned bubble but keeps the entry and its highlight. */
+  hiddenByUser: boolean;
+  /** Guards the async lookup after this occurrence is unpinned or destroyed. */
+  requestToken: number;
+}
+
 interface Browser {
   destroy(): void;
+  setPinned(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -71,7 +107,9 @@ function injectStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
 ::highlight(${HOVER_NAME}) { color: #eab308; }
+::highlight(${PINNED_NAME}) { color: #eab308; }
 .${WORD_CLASS}.${HOVER_CLASS} { color: #eab308; }
+.${WORD_CLASS}.${PINNED_CLASS} { color: #eab308; }
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
@@ -154,6 +192,9 @@ export function createGlossaryBrowser(
   let anchorStart = -1;
   let requestToken = 0;
   let rafPending = false;
+  let pinned = params.pinned === true;
+  const pinnedEntries: PinnedEntry[] = [];
+  const pinnedOwner = {};
 
   const highlightRegistry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
   const HighlightCtor = (globalThis as unknown as { Highlight?: new (range: Range) => unknown }).Highlight;
@@ -183,8 +224,8 @@ export function createGlossaryBrowser(
   }
 
   /** IPA on its own line above the meaning, only when the 音标 option is on. */
-  function renderBubble(gloss: string, phonetic?: Phonetic): void {
-    bubble.textContent = "";
+  function renderBubbleInto(target: HTMLElement, gloss: string, phonetic?: Phonetic): void {
+    target.textContent = "";
     if (phonetic) {
       const settings = get(glossarySettings);
       if (settings.showPhonetic) {
@@ -199,18 +240,56 @@ export function createGlossaryBrowser(
           const el = document.createElement("div");
           el.className = `${BUBBLE_CLASS}-phonetic`;
           el.textContent = line;
-          bubble.appendChild(el);
+          target.appendChild(el);
         }
       }
     }
     const meanings = document.createElement("div");
     meanings.textContent = gloss;
-    bubble.appendChild(meanings);
+    target.appendChild(meanings);
   }
 
   function position(): void {
     if (!anchorRange) return;
     placeBubble(bubble, anchorRange);
+  }
+
+  /** Publish this pane's ranges into the shared highlight. A handful of ranges
+   *  makes a full rebuild cheaper than tracking add/delete calls. */
+  function refreshPinnedHighlight(): void {
+    if (!useHighlight) return;
+    if (pinnedEntries.length === 0) pinnedRanges.delete(pinnedOwner);
+    else pinnedRanges.set(pinnedOwner, pinnedEntries.map((entry) => entry.range));
+    rebuildPinnedHighlight(highlightRegistry, HighlightCtor);
+  }
+
+  function markFallbackPinned(node: Text, on: boolean): void {
+    if (useHighlight) return;
+    const span = node.parentElement?.closest?.(`.${WORD_CLASS}`) as HTMLElement | null;
+    span?.classList.toggle(PINNED_CLASS, on);
+  }
+
+  /** Keep every pinned bubble glued to its word. Bubbles that would overlap
+   *  are pushed down (or up near the viewport edge) instead of stacking. */
+  function positionPinned(): void {
+    const occupied: DOMRect[] = [];
+    for (const entry of pinnedEntries) {
+      if (entry.hiddenByUser) {
+        entry.bubble.style.display = "none";
+        continue;
+      }
+      const rect = entry.range.getBoundingClientRect();
+      if (
+        (rect.width === 0 && rect.height === 0) ||
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight
+      ) {
+        entry.bubble.style.display = "none";
+        continue;
+      }
+      placeBubbleAt(entry.bubble, rect, occupied);
+      occupied.push(entry.bubble.getBoundingClientRect());
+    }
   }
 
   function schedulePosition(): void {
@@ -219,7 +298,53 @@ export function createGlossaryBrowser(
     requestAnimationFrame(() => {
       rafPending = false;
       position();
+      positionPinned();
     });
+  }
+
+  async function loadGloss(
+    raw: string,
+    render: (gloss: string, phonetic?: Phonetic) => void,
+    isCurrent: () => boolean,
+  ): Promise<void> {
+    const key = normalizeWord(raw);
+    if (!key) return;
+    if (destroyed || !isCurrent()) return;
+
+    const wantsPhonetic = get(glossarySettings).showPhonetic;
+
+    const cached = cache.get(key);
+    if (cached && cached.length > 0) {
+      const cachedPhonetic = cache.getPhonetics(key);
+      if (!wantsPhonetic || cachedPhonetic !== undefined) {
+        render(cached.join(" / "), cachedPhonetic);
+        return;
+      }
+      // A cache written before 音标 was enabled has the gloss but no IPA.
+      // Show the gloss immediately and refresh it from the model below.
+      render(cached.join(" / "), undefined);
+    }
+
+    await cache.ready;
+    if (destroyed || !isCurrent()) return;
+    const late = cache.get(key);
+    const latePhonetic = cache.getPhonetics(key);
+    if (late && late.length > 0) {
+      if (!wantsPhonetic || latePhonetic !== undefined) {
+        render(late.join(" / "), latePhonetic);
+        return;
+      }
+      render(late.join(" / "), undefined);
+    }
+
+    const result = await lookupGloss(raw);
+    if (destroyed || !isCurrent()) return;
+    if (result.ok) {
+      render(result.text, result.phonetic);
+      cache.set(key, result.items, result.phonetic);
+    } else if (!late || late.length === 0) {
+      render(translate("glossary.lookupFailed"), result.phonetic);
+    }
   }
 
   async function showBubble(
@@ -228,10 +353,6 @@ export function createGlossaryBrowser(
     range: Range,
     toggle = true,
   ): Promise<void> {
-    const raw = token.word;
-    const key = normalizeWord(raw);
-    if (!key) return;
-
     // A second click on the same occurrence closes the bubble. Alt+click (and
     // the 朗读 option) keeps it open so repeated pronunciation still shows the
     // meaning.
@@ -247,45 +368,87 @@ export function createGlossaryBrowser(
     position();
 
     const request = ++requestToken;
-    const wantsPhonetic = get(glossarySettings).showPhonetic;
-
-    const cached = cache.get(key);
-    if (cached && cached.length > 0) {
-      const cachedPhonetic = cache.getPhonetics(key);
-      if (!wantsPhonetic || cachedPhonetic !== undefined) {
-        renderBubble(cached.join(" / "), cachedPhonetic);
+    await loadGloss(
+      token.word,
+      (gloss, phonetic) => {
+        if (request !== requestToken) return;
+        renderBubbleInto(bubble, gloss, phonetic);
         position();
-        return;
-      }
-      // A cache written before 音标 was enabled has the gloss but no IPA.
-      // Show the gloss immediately and refresh it from the model below.
-      renderBubble(cached.join(" / "), undefined);
-      position();
+      },
+      () => request === requestToken,
+    );
+  }
+
+  function findPinned(node: Text, start: number): PinnedEntry | undefined {
+    return pinnedEntries.find((entry) => entry.node === node && entry.token.start === start);
+  }
+
+  function removePinned(entry: PinnedEntry): void {
+    const index = pinnedEntries.indexOf(entry);
+    if (index < 0) return;
+    entry.requestToken++;
+    pinnedEntries.splice(index, 1);
+    entry.bubble.remove();
+    markFallbackPinned(entry.node, false);
+    refreshPinnedHighlight();
+  }
+
+  function clearPinned(): void {
+    for (const entry of pinnedEntries) {
+      entry.requestToken++;
+      entry.bubble.remove();
+      markFallbackPinned(entry.node, false);
+    }
+    pinnedEntries.length = 0;
+    refreshPinnedHighlight();
+  }
+
+  async function loadPinned(entry: PinnedEntry): Promise<void> {
+    entry.bubble.textContent = "…";
+    positionPinned();
+    const request = ++entry.requestToken;
+    await loadGloss(
+      entry.token.word,
+      (gloss, phonetic) => {
+        if (entry.requestToken !== request) return;
+        renderBubbleInto(entry.bubble, gloss, phonetic);
+        positionPinned();
+      },
+      () => entry.requestToken === request && pinnedEntries.includes(entry),
+    );
+  }
+
+  function pinWord(node: Text, token: WordToken, range: Range): void {
+    const existing = findPinned(node, token.start);
+    if (existing) {
+      // A plain click after ESC brings the gloss back; it never unpins. Only
+      // Ctrl/Cmd+click removes a pinned word.
+      existing.hiddenByUser = false;
+      positionPinned();
+      return;
     }
 
-    await cache.ready;
-    if (destroyed || request !== requestToken) return;
-    const late = cache.get(key);
-    const latePhonetic = cache.getPhonetics(key);
-    if (late && late.length > 0) {
-      if (!wantsPhonetic || latePhonetic !== undefined) {
-        renderBubble(late.join(" / "), latePhonetic);
-        position();
-        return;
-      }
-      renderBubble(late.join(" / "), undefined);
-      position();
-    }
+    const entry: PinnedEntry = {
+      node,
+      token,
+      range,
+      bubble: document.createElement("div"),
+      hiddenByUser: false,
+      requestToken: 0,
+    };
+    entry.bubble.className = BUBBLE_CLASS;
+    document.body.appendChild(entry.bubble);
+    pinnedEntries.push(entry);
+    markFallbackPinned(node, true);
+    refreshPinnedHighlight();
+    void loadPinned(entry);
+  }
 
-    const result = await lookupGloss(raw);
-    if (destroyed || request !== requestToken) return;
-    if (result.ok) {
-      renderBubble(result.text, result.phonetic);
-      cache.set(key, result.items, result.phonetic);
-    } else if (!late || late.length === 0) {
-      renderBubble(translate("glossary.lookupFailed"), result.phonetic);
-    }
-    position();
+  function setPinned(on: boolean): void {
+    if (pinned === on) return;
+    pinned = on;
+    hideBubble();
+    clearPinned();
   }
 
   /** Alt+click always speaks; with the 朗读 option on, a plain left-click does too. */
@@ -301,6 +464,19 @@ export function createGlossaryBrowser(
   ): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (pinned) {
+      // Ctrl/Cmd+click is the only way to unpin one occurrence.
+      if (event.ctrlKey || event.metaKey) {
+        const entry = findPinned(node, token.start);
+        if (entry) removePinned(entry);
+        return;
+      }
+      if (wantsSpeech(event)) speakText(token.word);
+      pinWord(node, token, range);
+      return;
+    }
+
     if (wantsSpeech(event)) {
       // Keep the bubble open on repeated clicks so the definition stays visible
       // while the word is read again.
@@ -360,21 +536,33 @@ export function createGlossaryBrowser(
       event.preventDefault();
       event.stopPropagation();
     }
-    hideBubble();
+    // Pinned glosses leave only through Ctrl/Cmd+click or ESC; clicking empty
+    // space must not wipe a study session.
+    if (!pinned) hideBubble();
   }
 
   function onDocumentPointerDown(event: MouseEvent): void {
+    if (pinned) return;
     const target = event.target as Node | null;
     if (target && container.contains(target)) return;
     hideBubble();
   }
 
-  /** Escape dismisses the open word bubble so it stops covering the text. */
+  /** Escape dismisses every open word bubble so it stops covering the text.
+   *  Pinned entries stay: their highlights remain and a later click brings the
+   *  gloss back. */
   function onKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || bubble.style.display === "none") return;
+    if (event.key !== "Escape") return;
+    const transientVisible = bubble.style.display !== "none";
+    const pinnedVisible = pinnedEntries.some((entry) => !entry.hiddenByUser);
+    if (!transientVisible && !pinnedVisible) return;
     event.preventDefault();
     event.stopPropagation();
     hideBubble();
+    for (const entry of pinnedEntries) {
+      entry.hiddenByUser = true;
+      entry.bubble.style.display = "none";
+    }
   }
 
   // --- fallback: wrap words in inline spans -------------------------------
@@ -469,11 +657,17 @@ export function createGlossaryBrowser(
   const observer = new MutationObserver(() => {
     clearHover();
     if (anchorRange && !anchorRange.startContainer.isConnected) hideBubble();
+    for (let i = pinnedEntries.length - 1; i >= 0; i--) {
+      if (!pinnedEntries[i].node.isConnected) removePinned(pinnedEntries[i]);
+    }
     schedulePosition();
   });
   observer.observe(article, { childList: true, subtree: true, characterData: true });
 
   return {
+    setPinned(on: boolean) {
+      setPinned(on);
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -486,6 +680,7 @@ export function createGlossaryBrowser(
       document.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
+      clearPinned();
       if (!useHighlight) {
         if (idleHandle !== null) {
           const w = window as Window & { cancelIdleCallback?: (id: number) => void };
@@ -495,6 +690,8 @@ export function createGlossaryBrowser(
         unwrapFallbackWords();
       }
       highlightRegistry?.delete(HOVER_NAME);
+      pinnedRanges.delete(pinnedOwner);
+      rebuildPinnedHighlight(highlightRegistry, HighlightCtor);
       bubble.remove();
     },
   };
@@ -525,10 +722,14 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
         next.enabled !== current.enabled ||
         next.tabId !== current.tabId ||
         next.filePath !== current.filePath;
+      const pinChanged = !!next.pinned !== !!current.pinned;
       current = next;
-      if (!changed) return;
-      stop();
-      start();
+      if (changed) {
+        stop();
+        start();
+        return;
+      }
+      if (pinChanged) browser?.setPinned(!!next.pinned);
     },
     destroy() {
       stop();

@@ -86,6 +86,7 @@
   import { matchesShortcut, readingModeForCode } from "$lib/utils/shortcut";
   import { toggleSpeech } from "$lib/tts/speech";
   import { glossaryMode } from "$lib/stores/glossaryMode";
+  import { glossPinMode } from "$lib/stores/glossPin";
   import { glossary } from "$lib/glossary/action";
   import { sentenceMode } from "$lib/stores/sentenceMode";
   import { sentence as sentenceAction } from "$lib/glossary/sentence";
@@ -304,6 +305,18 @@
         : $glossaryMode
           ? $t("toolbar.glossOff")
           : $t("toolbar.glossOn"),
+  );
+
+  // Pin is a modifier for 词 mode: pre-arm it any time the mode itself is
+  // available, and show why it is disabled otherwise.
+  let glossPinTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.glossDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.glossDisabledLang")
+        : $glossPinMode
+          ? $t("toolbar.glossPinOn")
+          : $t("toolbar.glossPinOff"),
   );
 
   // Sentence ("句") mode is 词 one granularity up, so it shares the same gates
@@ -660,6 +673,10 @@
       sentenceMode.set(false);
     }
     glossaryMode.set(next);
+  }
+
+  function handleToggleGlossPin(): void {
+    glossPinMode.toggle();
   }
 
   function handleToggleSentence(): void {
@@ -1745,6 +1762,9 @@
       {glossTitle}
       onToggleGloss={handleToggleGloss}
       onOpenGlossSettings={() => (glossarySettingsVisible = true)}
+      glossPinActive={$glossPinMode}
+      {glossPinTitle}
+      onToggleGlossPin={handleToggleGlossPin}
       canSentence={canSentence}
       sentenceActive={canSentence && $sentenceMode}
       {sentenceTitle}
@@ -1908,6 +1928,7 @@
           enabled: $glossaryMode && leftIsEnglish && glossLayoutOk,
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
+          pinned: $glossPinMode,
         }}
         use:sentenceAction={{
           enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
@@ -1952,6 +1973,7 @@
         enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
+        pinned: $glossPinMode,
       }}
       use:sentenceAction={{
         enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
