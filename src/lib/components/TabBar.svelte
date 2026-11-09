@@ -19,7 +19,7 @@
   import { copyFileName, copyPath } from "$lib/utils/clipboard";
   import { createDelayedCall } from "$lib/utils/delayed-call";
   import { stripVerbatimPrefix, tabFolderLabel, tabsNeedingFolder } from "$lib/utils/path";
-  import { clipRowsToSeam, resolveDrop } from "$lib/utils/tab-drag";
+  import { addEmptyPaneRow, clipRowsToSeam, resolveDrop } from "$lib/utils/tab-drag";
   import PanelResizer from "./PanelResizer.svelte";
   import { translate, t } from "$lib/i18n";
 
@@ -127,11 +127,29 @@
         childEnds,
       };
     });
+    // An empty right column is a target across its whole body, not just the
+    // narrow tab strip. Dragging a tab into the blank column is the natural
+    // gesture, and dropping below the strip used to leave the tab behind.
+    const rightRow = document.querySelector<HTMLElement>(
+      '.tabbar-files[data-pane="right"]'
+    );
+    const rightHasTabs = rightRow
+      ? Array.from(rightRow.querySelectorAll<HTMLElement>("[data-tab-id]")).some(
+          (el) => el.dataset.tabId !== tabId
+        )
+      : false;
+    const rightPane = document.querySelector<HTMLElement>(".side-pane");
+    const rowsWithPane = addEmptyPaneRow(
+      rows,
+      "right",
+      rightPane?.getBoundingClientRect() ?? null,
+      rightHasTabs,
+    );
     // The left strip's box still spans the window; cut it where the pinned
     // right column starts so it cannot steal drops aimed at the right row.
     const rightBar = document.querySelector<HTMLElement>(".tabbar.pane-right");
     const seam = rightBar ? rightBar.getBoundingClientRect().left : null;
-    return resolveDrop(clipRowsToSeam(rows, seam), x, y);
+    return resolveDrop(clipRowsToSeam(rowsWithPane, seam), x, y);
   }
 
   function gapRect(target: TabDragTarget): DragRect | null {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clipRowsToSeam, resolveDrop, type TabRowGeometry } from "../../src/lib/utils/tab-drag";
+import {
+  addEmptyPaneRow,
+  clipRowsToSeam,
+  resolveDrop,
+  type TabRowGeometry,
+} from "../../src/lib/utils/tab-drag";
 
 // Two rows sitting side by side in the same band: the left column's row spans
 // 8..810, the right column's row spans 810..1610, both at y 44..88. The left
@@ -58,6 +63,21 @@ describe("tab drag across columns", () => {
 
   it("an empty column still offers its whole row as a target", () => {
     expect(resolveDrop([LEFT, { ...RIGHT, childEnds: [] }], 1500, 60)?.pane).toBe("right");
+  });
+
+  it("an empty column's body also takes drops below the tab strip", () => {
+    // The right column has no tabs, so its blank body is the natural target.
+    // Dropping there used to return null and leave the dragged tab behind.
+    const body = { left: 810, right: 1610, top: 88, bottom: 900 };
+    const rows = addEmptyPaneRow([LEFT, { ...RIGHT, childEnds: [] }], "right", body, false);
+    expect(resolveDrop(rows, 1200, 300)).toEqual({ pane: "right", index: 0 });
+  });
+
+  it("a column with tabs only takes drops on its tab strip", () => {
+    const body = { left: 810, right: 1610, top: 88, bottom: 900 };
+    const rows = addEmptyPaneRow([LEFT, RIGHT], "right", body, true);
+    expect(rows).toHaveLength(2);
+    expect(resolveDrop(rows, 1200, 300)).toBeNull();
   });
 
   it("clips the left strip at the seam so an empty left column is a target too", () => {

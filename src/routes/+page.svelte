@@ -1946,41 +1946,6 @@
         />
       </main>
     {/if}
-    {#if rightOpen && !zenMode && !presenting}
-      <!-- The second document, read-only, scrolling in its own column. A
-           renderer only owns the shared TOC when its column has focus, so the
-           `secondary` prop carries the inverse of that. -->
-      <section
-        class="side-pane"
-        class:concealed={canConceal && rightConcealed}
-        data-focused={!focusedLeft || undefined}
-        use:glossary={{
-          enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
-          tabId: rightTab?.id ?? null,
-          filePath: rightTab?.filePath ?? null,
-        }}
-        use:sentenceAction={{
-          enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
-          tabId: rightTab?.id ?? null,
-          filePath: rightTab?.filePath ?? null,
-        }}
-        use:parasAction={{
-          enabled: $parasMode && rightIsEnglish && glossLayoutOk,
-          tabId: rightTab?.id ?? null,
-          filePath: rightTab?.filePath ?? null,
-          onCardState: (open) => (parasCardOpen = open),
-        }}
-      >
-        {#if rightTab}
-          <MarkdownRenderer
-            html={rightTab.renderedHtml}
-            secondary={focusedLeft}
-            onImageClick={(src, all, idx) => { lightboxImages = all; lightboxIndex = idx; lightboxVisible = true; }}
-            onLocalLink={handleLocalLink}
-          />
-        {/if}
-      </section>
-    {/if}
     {#if !zenMode && !activeTab?.isEditing && !presenting}
       <StatusBar />
       <ScrollToTop />
@@ -1988,6 +1953,43 @@
     <ImageLightbox bind:visible={lightboxVisible} src="" images={lightboxImages} bind:index={lightboxIndex} />
   {:else}
     <EmptyState onOpenUrl={() => { pasteDefaultMode = "url"; pasteVisible = true; }} />
+  {/if}
+  <!-- The second document, read-only, scrolling in its own column. It renders
+       outside the left column's condition above: the left column can be at the
+       home screen (e.g. its last tab was dragged to the right) while the right
+       column still has a document to show. A renderer only owns the shared TOC
+       when its column has focus, so `secondary` carries the inverse of that. -->
+  {#if rendererReady && rightOpen && !zenMode && !presenting}
+    <section
+      class="side-pane"
+      class:concealed={canConceal && rightConcealed}
+      data-focused={!focusedLeft || undefined}
+      use:glossary={{
+        enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
+        tabId: rightTab?.id ?? null,
+        filePath: rightTab?.filePath ?? null,
+      }}
+      use:sentenceAction={{
+        enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
+        tabId: rightTab?.id ?? null,
+        filePath: rightTab?.filePath ?? null,
+      }}
+      use:parasAction={{
+        enabled: $parasMode && rightIsEnglish && glossLayoutOk,
+        tabId: rightTab?.id ?? null,
+        filePath: rightTab?.filePath ?? null,
+        onCardState: (open) => (parasCardOpen = open),
+      }}
+    >
+      {#if rightTab}
+        <MarkdownRenderer
+          html={rightTab.renderedHtml}
+          secondary={focusedLeft}
+          onImageClick={(src, all, idx) => { lightboxImages = all; lightboxIndex = idx; lightboxVisible = true; }}
+          onLocalLink={handleLocalLink}
+        />
+      {/if}
+    </section>
   {/if}
   </div>
   <UpdateToast />

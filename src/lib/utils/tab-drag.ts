@@ -35,6 +35,42 @@ export function clipRowsToSeam(
   );
 }
 
+/** The box of a pane that has no tabs, so its whole body can take a drop. */
+export interface PaneBodyRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * A column with no tabs has only a thin strip to aim at, and the natural
+ * gesture is to drag a tab anywhere into the blank column. Add the pane body as
+ * a drop row so a release below the strip still moves the tab there. A column
+ * that already has tabs keeps the old rule: only its tab row takes drops, so a
+ * drag across a document never moves a tab by accident.
+ */
+export function addEmptyPaneRow(
+  rows: TabRowGeometry[],
+  pane: PaneId,
+  body: PaneBodyRect | null,
+  hasTabs: boolean,
+): TabRowGeometry[] {
+  if (!body || hasTabs) return rows;
+  return [
+    ...rows,
+    {
+      pane,
+      left: body.left,
+      right: body.right,
+      top: body.top,
+      bottom: body.bottom,
+      orientation: "horizontal",
+      childEnds: [],
+    },
+  ];
+}
+
 /**
  * The row a dragged tab should drop into, and the slot inside that row. A
  * pointer outside every row drops nowhere, so a drag that never enters a row
