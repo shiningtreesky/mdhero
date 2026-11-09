@@ -67,6 +67,27 @@ const CODE_LABELS: Record<string, string> = {
   Insert: "Insert",
 };
 
+/** The three mutually exclusive reading modes, in toolbar order. */
+export type ReadingModeTarget = "paras" | "sentence" | "gloss";
+
+/**
+ * Main-row `1`/`2`/`3` select 段/句/词. Matching on the physical `code` keeps
+ * the binding on the same keys under non-QWERTY layouts; numpad digits and
+ * every other key return null.
+ */
+export function readingModeForCode(code: string): ReadingModeTarget | null {
+  switch (code) {
+    case "Digit1":
+      return "paras";
+    case "Digit2":
+      return "sentence";
+    case "Digit3":
+      return "gloss";
+    default:
+      return null;
+  }
+}
+
 /** Human-readable label for a stored key code: `Backquote` → `~`. */
 export function shortcutLabel(code: string): string {
   if (CODE_LABELS[code]) return CODE_LABELS[code];

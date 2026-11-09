@@ -83,7 +83,7 @@
   import { fitWindowToPage } from "$lib/tauri/page-window";
   import { saveProgress, getProgress } from "$lib/stores/readingProgress";
   import { shortcuts } from "$lib/stores/shortcuts";
-  import { matchesShortcut } from "$lib/utils/shortcut";
+  import { matchesShortcut, readingModeForCode } from "$lib/utils/shortcut";
   import { toggleSpeech } from "$lib/tts/speech";
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossary } from "$lib/glossary/action";
@@ -152,6 +152,15 @@
   let lightboxVisible = $state(false);
   let lightboxImages = $state<string[]>([]);
   let lightboxIndex = $state(0);
+
+  // Dialogs and the floating paragraph editor own the keyboard while they are
+  // up. The 1/2/3 reading-mode shortcuts stay quiet then, so a digit typed in a
+  // dialog (or a focused card button) never switches modes behind it. The
+  // modes themselves are deliberately not included: their keys must keep
+  // working to switch between 段/句/词.
+  let anyDialogVisible = $derived(
+    searchVisible || pasteVisible || openVisible || settingsVisible || translationSettingsVisible || shortcutSettingsVisible || glossarySettingsVisible || graderSettingsVisible || scorePanelVisible || aboutVisible || customPromptVisible || lightboxVisible || languageVisible || parasCardOpen
+  );
 
   // Reading progress: debounced scroll save + restore guard
   let isRestoring = false;
@@ -1528,6 +1537,20 @@
     if (e.key === "Escape") {
       if (zenMode) zenMode = false;
       else if (presenting) presenting = false;
+      return;
+    }
+
+    // Main-row 1/2/3 select the reading modes: 1 = 段, 2 = 句, 3 = 词. They
+    // mirror the toolbar buttons (same availability gates) and pressing the
+    // active mode's key again keeps it on instead of toggling it off.
+    const readingMode = readingModeForCode(e.code);
+    if (readingMode) {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat) return;
+      if (isInputFocused() || anyDialogVisible || !canGloss) return;
+      e.preventDefault();
+      if (readingMode === "paras" && !$parasMode) handleToggleParas();
+      else if (readingMode === "sentence" && !$sentenceMode) handleToggleSentence();
+      else if (readingMode === "gloss" && !$glossaryMode) handleToggleGloss();
       return;
     }
 

@@ -5,6 +5,7 @@ import {
   codeFromEvent,
   matchesShortcut,
   parseShortcutSettings,
+  readingModeForCode,
   shortcutLabel,
 } from "../../src/lib/utils/shortcut";
 
@@ -40,6 +41,20 @@ describe("shortcut matching", () => {
   it("accepts a rebound key and rejects the old one", () => {
     expect(matchesShortcut({ code: "KeyP" }, "KeyP")).toBe(true);
     expect(matchesShortcut({ code: "Backquote" }, "KeyP")).toBe(false);
+  });
+});
+
+describe("reading mode shortcuts", () => {
+  it("maps main-row 1/2/3 to 段/句/词", () => {
+    expect(readingModeForCode("Digit1")).toBe("paras");
+    expect(readingModeForCode("Digit2")).toBe("sentence");
+    expect(readingModeForCode("Digit3")).toBe("gloss");
+  });
+
+  it("ignores the numpad and every other key", () => {
+    for (const code of ["Numpad1", "Numpad2", "Numpad3", "Digit4", "Digit0", "KeyA", ""]) {
+      expect(readingModeForCode(code)).toBeNull();
+    }
   });
 });
 
