@@ -41,21 +41,27 @@ export function sameSentence(rendered: string, spoken: string): boolean {
   return commonPrefix(a, b) >= Math.min(12, a.length, b.length);
 }
 
+export interface SentenceHit<T> {
+  entry: T;
+  index: number;
+  /** Cursor to resume from, i.e. the next entry in reading order. */
+  next: number;
+}
+
 /**
  * Find `spoken` in document order, starting at `from` and wrapping around once,
- * so a seek backwards still finds its sentence. Returns the entry and the
- * cursor to resume from.
+ * so a seek backwards still finds its sentence.
  */
 export function findSentence<T extends TextualSentence>(
   sentences: T[],
   spoken: string,
   from: number,
-): { entry: T; next: number } | null {
+): SentenceHit<T> | null {
   const count = sentences.length;
   for (let step = 0; step < count; step++) {
     const index = (from + step) % count;
     if (sameSentence(sentences[index].text, spoken)) {
-      return { entry: sentences[index], next: index + 1 };
+      return { entry: sentences[index], index, next: index + 1 };
     }
   }
   return null;

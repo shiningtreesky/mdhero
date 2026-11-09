@@ -300,7 +300,9 @@ export class SpeechPlayer {
 
   private startTimer(): void {
     this.clearTimer();
-    this.timer = setInterval(() => this.emitProgress(), 250);
+    // 80 ms keeps the read-aloud highlight within a frame or two of the audio
+    // when the next segment starts; 250 ms was visibly late on short sentences.
+    this.timer = setInterval(() => this.emitProgress(), 80);
   }
 
   private clearTimer(): void {

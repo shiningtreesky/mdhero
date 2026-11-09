@@ -3,7 +3,7 @@ import { supportsHighlight } from "$lib/glossary/shared";
 import { ttsSettings } from "$lib/stores/tts";
 import { collectParagraphs } from "$lib/utils/paragraphs";
 import { sentenceRanges } from "$lib/utils/sentence-dom";
-import { findSentence } from "$lib/utils/speech-match";
+import { findSentence, sameSentence } from "$lib/utils/speech-match";
 import { speechSentence } from "./speech";
 
 /**
@@ -64,6 +64,8 @@ export function speechHighlight(node: HTMLElement, params: SpeechHighlightParams
   let current = params;
   let sentences: IndexedSentence[] | null = null;
   let cursor = 0;
+  /** Entry painted last, so a sentence split across requests keeps its range. */
+  let lastMatch = -1;
   /** The spoken text currently painted; skips redundant repaints. */
   let painted = "";
   let observer: MutationObserver | null = null;
@@ -81,6 +83,7 @@ export function speechHighlight(node: HTMLElement, params: SpeechHighlightParams
       }
     }
     cursor = 0;
+    lastMatch = -1;
   }
 
   function clear(): void {
@@ -129,11 +132,19 @@ export function speechHighlight(node: HTMLElement, params: SpeechHighlightParams
       return;
     }
 
-    const hit = findSentence(index, spoken.text, cursor);
+    // A sentence longer than one request arrives as several pieces, each one a
+    // segment of its own. The piece after the first must keep the range already
+    // painted instead of hunting for a sentence it will never match.
+    const previous = lastMatch >= 0 ? index[lastMatch] : null;
+    const hit =
+      previous && sameSentence(previous.text, spoken.text)
+        ? { entry: previous, index: lastMatch, next: lastMatch + 1 }
+        : findSentence(index, spoken.text, cursor);
     if (!hit) {
       clear();
       return;
     }
+    lastMatch = hit.index;
     cursor = hit.next % index.length;
     painted = spoken.text;
     if (HighlightCtor && registry) {

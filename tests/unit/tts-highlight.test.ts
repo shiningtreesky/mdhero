@@ -42,6 +42,38 @@ describe("the speech plan", () => {
   });
 });
 
+describe("the per-sentence speech plan", () => {
+  const perSentence = buildSpeechPlan(markdown, undefined, { perSentence: true });
+
+  it("puts one sentence in every chunk", () => {
+    expect(perSentence.chunks.length).toBe(5);
+    for (const sentence of perSentence.sentences) {
+      const chunk = perSentence.chunks[sentence.chunkIndex];
+      expect(chunk.text).toBe(sentence.text);
+    }
+  });
+
+  it("still packs neighbours when the option is off", () => {
+    expect(buildSpeechPlan(markdown).chunks.length).toBeLessThan(5);
+    expect(buildSpeechPlan(markdown, undefined, { perSentence: false }).chunks.length).toBe(
+      buildSpeechPlan(markdown).chunks.length,
+    );
+  });
+
+  it("places each sentence exactly on its own segment", () => {
+    const spans = perSentence.chunks.map((chunk, index) => ({
+      start: index * 2,
+      end: index * 2 + chunk.text.length / 10,
+    }));
+    const timings = sentenceTimings(perSentence, spans);
+    expect(timings).toHaveLength(perSentence.sentences.length);
+    for (let i = 0; i < timings.length; i++) {
+      expect(timings[i].start).toBeCloseTo(spans[i].start, 5);
+      expect(timings[i].end).toBeCloseTo(spans[i].end, 5);
+    }
+  });
+});
+
 describe("sentence timings on the audio timeline", () => {
   const plan = buildSpeechPlan("一。二。");
 

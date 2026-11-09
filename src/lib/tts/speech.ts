@@ -125,6 +125,84 @@ let cleanupPart: string | null = null;
 /** Tabs already told that they have no disk path to cache into. */
 const warnedNoCache = new Set<string>();
 
+/**
+ * Sentence start times of a document that has been synthesized to disk.
+ *
+ * A cache hit decodes the whole file into one audio segment, so the chunk
+ * boundaries are gone and the sentences would have to be placed by character
+ * counts again — the exact reason the highlight used to lag. Remembering the
+ * measured starts keeps the cache path as precise as live generation.
+ */
+const TIMINGS_KEY_PREFIX = "mdhero:tts-timings:";
+const TIMINGS_MAX_ENTRIES = 50;
+
+interface StoredTimings {
+  at: number;
+  spans: Array<[number, number]>;
+}
+
+function pruneTimings(keep: string): void {
+  const keys: Array<{ key: string; at: number }> = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(TIMINGS_KEY_PREFIX) || key === keep) continue;
+    let at = 0;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) ?? "null") as StoredTimings | null;
+      at = typeof parsed?.at === "number" ? parsed.at : 0;
+    } catch {
+      // Unreadable entry: treat it as the oldest and let the prune take it.
+    }
+    keys.push({ key, at });
+  }
+  if (keys.length < TIMINGS_MAX_ENTRIES) return;
+  keys.sort((a, b) => a.at - b.at);
+  for (const entry of keys.slice(0, keys.length - TIMINGS_MAX_ENTRIES + 1)) {
+    localStorage.removeItem(entry.key);
+  }
+}
+
+function rememberTimings(hash: string, values: SentenceTiming[]): void {
+  if (!hash || values.length === 0 || typeof localStorage === "undefined") return;
+  try {
+    const key = TIMINGS_KEY_PREFIX + hash;
+    const payload: StoredTimings = {
+      at: Date.now(),
+      // Milliseconds are plenty: one tenth of a syllable.
+      spans: values.map((value) => [
+        Math.round(value.start * 1000) / 1000,
+        Math.round(value.end * 1000) / 1000,
+      ]),
+    };
+    localStorage.setItem(key, JSON.stringify(payload));
+    pruneTimings(key);
+  } catch {
+    // Storage disabled or full: the cache path falls back to character counts.
+  }
+}
+
+function recallTimings(hash: string, speechPlan: SpeechPlan): SentenceTiming[] | null {
+  if (!hash || typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(TIMINGS_KEY_PREFIX + hash);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredTimings> | null;
+    const spans = parsed?.spans;
+    if (!Array.isArray(spans) || spans.length !== speechPlan.sentences.length) return null;
+    const out: SentenceTiming[] = [];
+    for (let i = 0; i < spans.length; i++) {
+      const span = spans[i];
+      if (!Array.isArray(span) || typeof span[0] !== "number" || typeof span[1] !== "number") {
+        return null;
+      }
+      out.push({ text: speechPlan.sentences[i].text, start: span[0], end: span[1] });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 function setProgress(patch: Partial<SpeechProgress>): void {
   progress = { ...progress, ...patch };
   speechProgress.set(progress);
@@ -236,7 +314,10 @@ async function startSpeech(): Promise<void> {
   const tab = tabStore.getActiveTab();
   if (!tab) return;
 
-  const speechPlan = buildSpeechPlan(tab.content);
+  // One request per sentence: the segment boundaries then *are* the sentence
+  // boundaries, so the highlight switches on the first syllable instead of
+  // estimating where inside a packed chunk a sentence starts.
+  const speechPlan = buildSpeechPlan(tab.content, undefined, { perSentence: true });
   const chunks = speechPlan.chunks;
   if (chunks.length === 0) {
     showToast(translate("speech.emptyDocument"), 5000);
@@ -253,7 +334,12 @@ async function startSpeech(): Promise<void> {
 
   // The rate is part of the key: a file synthesized at 1.0x is not the audio
   // the user asked for at 1.5x, so a speed change regenerates instead of reusing.
-  const hash = cacheable ? await hashDocument(`${tab.content}\u0000${speed}`) : "";
+  // The trailing marker versions the key: audio packed several sentences into
+  // one request has no sentence boundaries to place the highlight with, so it
+  // is regenerated once at the new granularity.
+  const hash = cacheable
+    ? await hashDocument(`${tab.content}\u0000${speed}\u0000per-sentence`)
+    : "";
   if (run !== runId) return;
 
   startedTabId = tab.id;
@@ -277,9 +363,12 @@ async function startSpeech(): Promise<void> {
         bitrate: meta?.bitrate ?? null,
         total: meta?.duration ?? null,
       });
-      // A cache hit decodes into one segment, so the chunk spans are unknown;
-      // every sentence is placed by its share of the whole text instead.
-      timings = sentenceTimings(speechPlan, [], meta?.duration ?? 0);
+      // A cache hit decodes into one segment, so the chunk spans are unknown.
+      // Measured sentence starts from the run that wrote the file place the
+      // highlight exactly; only a file without them falls back to placing
+      // sentences by their share of the whole text.
+      timings = recallTimings(hash, speechPlan)
+        ?? sentenceTimings(speechPlan, [], meta?.duration ?? 0);
       await player.startCached(data);
       if (run !== runId) return;
       if (timings.length === 0) {
@@ -404,6 +493,13 @@ async function startSpeech(): Promise<void> {
 
     player.markComplete();
     setProgress({ generation: null, total: player.generatedSeconds });
+
+    // Keep the measured starts with the cache file, so replaying it from disk
+    // places the highlight just as exactly. Only a run that covered every
+    // sentence can be stored; a skipped chunk would misalign the rest.
+    if (timings.length === speechPlan.sentences.length) {
+      rememberTimings(hash, timings);
+    }
 
     if (cacheWriting && writtenBytes > 0) {
       // The part file is complete; Rust turns it into the final 192 kbps file.

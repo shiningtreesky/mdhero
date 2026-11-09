@@ -306,17 +306,30 @@ export interface SpeechPlan {
   sentences: SpeechSentence[];
 }
 
+export interface SpeechPlanOptions {
+  /**
+   * One request per sentence instead of packing neighbours together. The audio
+   * segment boundaries then match sentence boundaries, which is what lets the
+   * read-aloud highlight switch on the syllable the next sentence starts with;
+   * packing amortizes request overhead but leaves the highlight to estimate
+   * sentence starts inside a chunk.
+   */
+  perSentence?: boolean;
+}
+
 /**
  * The document as ordered speech chunks, each with the voice language it should
- * be read in, plus the sentence → chunk mapping. Adjacent sentences of the same
- * language are packed together so a short paragraph is not one request per
- * sentence; a sentence longer than one request is split and contributes one
- * entry per piece.
+ * be read in, plus the sentence → chunk mapping. By default adjacent sentences
+ * of the same language are packed together so a short paragraph is not one
+ * request per sentence; a sentence longer than one request is split and
+ * contributes one entry per piece.
  */
 export function buildSpeechPlan(
   markdown: string,
   maxChars = TTS_CHUNK_MAX_CHARS,
+  options: SpeechPlanOptions = {},
 ): SpeechPlan {
+  const pack = options.perSentence !== true;
   const chunks: SpeechChunk[] = [];
   const sentences: SpeechSentence[] = [];
   let current: SpeechChunk | null = null;
@@ -330,6 +343,7 @@ export function buildSpeechPlan(
     if (!piece || !hasSpeakableText(piece)) return;
     const language = detectLanguage(piece);
     if (
+      pack &&
       current &&
       current.language === language &&
       current.text.length + 1 + piece.length <= maxChars
