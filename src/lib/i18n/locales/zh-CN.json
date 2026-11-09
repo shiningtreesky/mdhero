@@ -103,7 +103,9 @@
     "speechTitleNoFile": "朗读（请先打开文件）",
     "speechTitleEditing": "朗读（请先退出编辑模式）",
     "speechRate": "语速",
-    "speechRateAria": "朗读语速"
+    "speechRateAria": "朗读语速",
+    "speechHighlight": "高亮显示",
+    "speechOptions": "朗读选项"
   },
   "speech": {
     "emptyDocument": "本文档没有可朗读的文字。",

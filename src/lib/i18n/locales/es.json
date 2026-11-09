@@ -103,7 +103,9 @@
     "speechTitleNoFile": "Leer en voz alta (abre un archivo primero)",
     "speechTitleEditing": "Leer en voz alta (sal del modo edición)",
     "speechRate": "Velocidad de lectura",
-    "speechRateAria": "Velocidad de lectura"
+    "speechRateAria": "Velocidad de lectura",
+    "speechHighlight": "Resaltar la frase leída",
+    "speechOptions": "Opciones de lectura en voz alta"
   },
   "speech": {
     "emptyDocument": "Este documento no contiene texto legible.",

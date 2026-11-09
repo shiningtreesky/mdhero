@@ -103,7 +103,9 @@
     "speechTitleNoFile": "Vorlesen (zuerst eine Datei öffnen)",
     "speechTitleEditing": "Vorlesen (Bearbeitungsmodus verlassen)",
     "speechRate": "Sprechtempo",
-    "speechRateAria": "Sprechtempo"
+    "speechRateAria": "Sprechtempo",
+    "speechHighlight": "Gesprochenen Satz hervorheben",
+    "speechOptions": "Vorleseoptionen"
   },
   "speech": {
     "emptyDocument": "Dieses Dokument enthält keinen lesbaren Text.",

@@ -85,6 +85,7 @@
   import { shortcuts } from "$lib/stores/shortcuts";
   import { matchesShortcut, readingModeForCode } from "$lib/utils/shortcut";
   import { toggleSpeech } from "$lib/tts/speech";
+  import { speechHighlight } from "$lib/tts/highlight";
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossPinMode } from "$lib/stores/glossPin";
   import { glossary } from "$lib/glossary/action";
@@ -1941,6 +1942,7 @@
           filePath: leftTab?.filePath ?? null,
           onCardState: (open) => (parasCardOpen = open),
         }}
+        use:speechHighlight={{ tabId: leftTab?.id ?? null, name: "mdhero-speech-left" }}
       >
         <FrontmatterBar />
         <MarkdownRenderer
@@ -1986,6 +1988,7 @@
         filePath: rightTab?.filePath ?? null,
         onCardState: (open) => (parasCardOpen = open),
       }}
+      use:speechHighlight={{ tabId: rightTab?.id ?? null, name: "mdhero-speech-right" }}
     >
       {#if rightTab}
         <MarkdownRenderer

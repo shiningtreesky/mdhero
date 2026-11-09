@@ -11,7 +11,7 @@
   import brandLogo from "$lib/assets/mdhero-icon.png";
   import { Cog } from "@lucide/svelte";
   import { speechState, toggleSpeech, changeSpeechSpeed } from "$lib/tts/speech";
-  import { ttsSettings } from "$lib/stores/tts";
+  import { setTtsHighlight, ttsSettings } from "$lib/stores/tts";
   import { TTS_MAX_SPEED, TTS_MIN_SPEED, TTS_SPEED_STEP } from "$lib/utils/tts";
 
   let {
@@ -147,6 +147,8 @@
   let showReaderControls = $state(false);
   let showCopyMenu = $state(false);
   let showSpeedPopover = $state(false);
+  /** Right-click menu of the read-aloud button ("highlight the spoken sentence"). */
+  let showSpeechMenu = $state(false);
   let copyFeedback = $state("");
 
   let leftConcealTitle = $derived(
@@ -182,6 +184,7 @@
     showReaderControls = false;
     showCopyMenu = false;
     showSpeedPopover = false;
+    showSpeechMenu = false;
   }
 
   function toggleReaderControls() {
@@ -205,6 +208,29 @@
   function handleSpeechToggle() {
     closeAll();
     toggleSpeech();
+  }
+
+  /** Right-click on the play button opens its options instead of the webview's
+   *  own menu; a short click keeps playing/pausing. */
+  function handleSpeechContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    const next = !showSpeechMenu;
+    closeAll();
+    showSpeechMenu = next;
+  }
+
+  function handleSpeechHighlightChange(event: Event) {
+    setTtsHighlight((event.currentTarget as HTMLInputElement).checked);
+  }
+
+  // The menu is opened by right-click, which browsers do not follow with a
+  // page click, so a pointerdown anywhere else dismisses it. Clicks inside the
+  // group (the button itself, the checkbox) keep it open.
+  function handleOutsidePointerDown(event: PointerEvent) {
+    if (!showSpeechMenu) return;
+    const target = event.target as Element | null;
+    if (target?.closest?.(".speech-group")) return;
+    showSpeechMenu = false;
   }
 
   function handleSpeedInput(event: Event) {
@@ -393,6 +419,8 @@
   }
 </script>
 
+<svelte:document onpointerdown={handleOutsidePointerDown} />
+
 <header class="toolbar">
   <div class="toolbar-left">
     <img src={brandLogo} alt="MDHero" width="26" height="26" class="toolbar-logo" />
@@ -575,11 +603,14 @@
     <div class="speech-group" role="group" aria-label={$t('toolbar.readAloud')}>
       <button
         onclick={handleSpeechToggle}
+        oncontextmenu={handleSpeechContextMenu}
         class="btn btn-icon speech-btn"
         class:active={$speechState !== "idle"}
         disabled={!canSpeak || isEditing}
         title={speechTitle}
         aria-label={speechTitle}
+        aria-haspopup="true"
+        aria-expanded={showSpeechMenu}
       >
         {#if $speechState === "playing"}
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -630,6 +661,19 @@
           </div>
         {/if}
       </div>
+
+      {#if showSpeechMenu}
+        <div class="speech-menu" role="menu" aria-label={$t('toolbar.speechOptions')}>
+          <label class="speech-menu-item">
+            <input
+              type="checkbox"
+              checked={$ttsSettings.highlight}
+              onchange={handleSpeechHighlightChange}
+            />
+            <span>{$t('toolbar.speechHighlight')}</span>
+          </label>
+        </div>
+      {/if}
     </div>
 
     <div class="separator"></div>
@@ -909,9 +953,60 @@
   }
 
   .speech-group {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 2px;
+  }
+
+  /* Right-click menu of the play button, opened like the speed popover. */
+  .speech-menu {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 6px);
+    min-width: 152px;
+    padding: 4px;
+    background: white;
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+    z-index: 50;
+  }
+
+  :global(html.dark) .speech-menu {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .speech-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #1c1c1e;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  :global(html.dark) .speech-menu-item {
+    color: #e5e5e7;
+  }
+
+  .speech-menu-item:hover {
+    background: #f2f2f7;
+  }
+
+  :global(html.dark) .speech-menu-item:hover {
+    background: #3a3a3c;
+  }
+
+  .speech-menu-item input {
+    margin: 0;
+    accent-color: #0891b2;
   }
 
   .speech-btn {

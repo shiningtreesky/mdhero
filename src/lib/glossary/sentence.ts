@@ -5,6 +5,7 @@ import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
 import { collectParagraphs, UNIT_SELECTOR } from "$lib/utils/paragraphs";
 import { sentenceKey, tokenizeSentences } from "$lib/utils/sentences";
+import { sentenceRanges, skipTextNode, unitText } from "$lib/utils/sentence-dom";
 import { SENTENCE_FILE_SUFFIX, createGlossCache, type GlossCache } from "./cache";
 import { lookupSentence } from "./lookup";
 import {
@@ -35,10 +36,6 @@ const BUBBLE_CLASS = "mdhero-sentence-bubble";
 const SENTENCE_CLASS = "mdhero-sentence";
 const HOVER_CLASS = "mdhero-sentence-hovered";
 
-/** Elements whose text never belongs to a sentence unit. Inline `code` is
- *  intentionally kept: it is part of the sentence being translated. */
-const SKIP_TAGS = new Set(["PRE", "SCRIPT", "STYLE", "TEXTAREA", "SVG", "MATH"]);
-
 let memoryHintShown = false;
 
 export interface SentenceParams {
@@ -62,16 +59,6 @@ interface SentenceEntry {
 
 interface Browser {
   destroy(): void;
-}
-
-interface UnitText {
-  text: string;
-  nodes: Text[];
-  /** Global offset of each kept node's first character in `text`. */
-  starts: number[];
-  /** For every character, the DOM position it came from; null for a synthetic
-   *  separator inserted where an excluded node was skipped. */
-  positions: Array<{ node: Text; offset: number } | null>;
 }
 
 function injectStyles(): void {
@@ -108,102 +95,15 @@ html.dark .${BUBBLE_CLASS} {
   document.head.appendChild(style);
 }
 
-function skipTextNode(node: Text, root: HTMLElement): boolean {
-  let el = node.parentElement;
-  while (el && el !== root) {
-    if (SKIP_TAGS.has(el.tagName)) return true;
-    if (el.hasAttribute("data-glossary-exclude")) return true;
-    if (el.hasAttribute("data-paras-ui")) return true;
-    el = el.parentElement;
-  }
-  return false;
-}
-
-/** Concatenate a prose block's text nodes while remembering where every
- *  character came from, so a sentence can be turned back into a `Range` that
- *  spans inline elements. */
-function unitText(unit: HTMLElement): UnitText {
-  const nodes: Text[] = [];
-  const starts: number[] = [];
-  const positions: UnitText["positions"] = [];
-  let text = "";
-
-  const walker = document.createTreeWalker(unit, NodeFilter.SHOW_TEXT);
-  let node = walker.nextNode();
-  while (node) {
-    const textNode = node as Text;
-    if (textNode.data.length > 0) {
-      if (skipTextNode(textNode, unit)) {
-        // Keep a separator so words on either side of a skipped node do not
-        // fuse; the separator itself has no DOM position.
-        if (text && !/\s$/.test(text)) {
-          text += " ";
-          positions.push(null);
-        }
-      } else {
-        starts.push(text.length);
-        nodes.push(textNode);
-        for (let i = 0; i < textNode.data.length; i++) {
-          text += textNode.data[i];
-          positions.push({ node: textNode, offset: i });
-        }
-      }
-    }
-    node = walker.nextNode();
-  }
-
-  return { text, nodes, starts, positions };
-}
-
-function locateStart(
-  ut: UnitText,
-  offset: number,
-): { node: Text; offset: number } | null {
-  for (let i = Math.max(0, offset); i < ut.text.length; i++) {
-    const position = ut.positions[i];
-    if (position) return position;
-  }
-  return null;
-}
-
-function locateEnd(
-  ut: UnitText,
-  offset: number,
-): { node: Text; offset: number } | null {
-  for (let i = Math.min(offset, ut.text.length) - 1; i >= 0; i--) {
-    const position = ut.positions[i];
-    if (position) return { node: position.node, offset: position.offset + 1 };
-  }
-  return null;
-}
-
 function buildSentences(unit: HTMLElement, unitIndex: number): SentenceEntry[] {
-  const ut = unitText(unit);
-  const tokens = tokenizeSentences(ut.text);
-  const out: SentenceEntry[] = [];
-
-  for (const token of tokens) {
-    const start = locateStart(ut, token.start);
-    const end = locateEnd(ut, token.end);
-    if (!start || !end) continue;
-    const range = document.createRange();
-    try {
-      range.setStart(start.node, start.offset);
-      range.setEnd(end.node, end.offset);
-    } catch {
-      continue;
-    }
-    out.push({
-      unit,
-      unitIndex,
-      index: out.length,
-      text: token.text,
-      key: sentenceKey(token.text),
-      range,
-    });
-  }
-
-  return out;
+  return sentenceRanges(unit).map((sentence, index) => ({
+    unit,
+    unitIndex,
+    index,
+    text: sentence.text,
+    key: sentenceKey(sentence.text),
+    range: sentence.range,
+  }));
 }
 
 /** A one-character range at the caret, used to glue the bubble to the exact

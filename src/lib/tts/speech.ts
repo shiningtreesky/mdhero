@@ -4,12 +4,19 @@ import { setTtsSpeed, ttsSettings } from "$lib/stores/tts";
 import { showToast } from "$lib/stores/toast";
 import { translate } from "$lib/i18n";
 import {
+  buildSpeechPlan,
   buildSpeechRequest,
-  splitSpeechChunks,
   synthesizeChunkWithFallback,
   type SpeechChunk,
+  type SpeechPlan,
 } from "$lib/utils/tts";
 import { SpeechPlayer, type PlaybackState } from "./player";
+import {
+  locateSentence,
+  sentenceTimings,
+  type ChunkSpan,
+  type SentenceTiming,
+} from "./timeline";
 import {
   audioCachePaths,
   appendCacheChunk,
@@ -56,6 +63,50 @@ const EMPTY_PROGRESS: SpeechProgress = {
 };
 
 export const speechProgress = writable<SpeechProgress>(EMPTY_PROGRESS);
+
+/** The sentence currently being read, for the reading pane's highlight. It
+ *  carries the tab it was spoken from, so only that pane paints. */
+export interface SpokenSentence {
+  tabId: string;
+  text: string;
+}
+
+export const speechSentence = writable<SpokenSentence | null>(null);
+
+/** Sentence → audio mapping of the run in flight. */
+let plan: SpeechPlan | null = null;
+let chunkSpans: Array<ChunkSpan | null> = [];
+let timings: SentenceTiming[] = [];
+let timingIndex = -1;
+
+function clearSentence(): void {
+  plan = null;
+  chunkSpans = [];
+  timings = [];
+  timingIndex = -1;
+  speechSentence.set(null);
+}
+
+/** Publish the sentence at `position`; the store only changes once per
+ *  sentence, so the highlighter is not woken up by every progress tick. */
+function publishSentence(position: number): void {
+  if (!plan || !startedTabId) return;
+  const index = locateSentence(timings, position);
+  if (index === timingIndex) return;
+  timingIndex = index;
+  if (index < 0) {
+    speechSentence.set(null);
+    return;
+  }
+  speechSentence.set({ tabId: startedTabId, text: timings[index].text });
+}
+
+/** Recompute the mapping after another chunk landed on the timeline. */
+function refreshTimings(): void {
+  if (!plan) return;
+  timings = sentenceTimings(plan, chunkSpans);
+  publishSentence(player.position);
+}
 
 /** Keep generation at most this far ahead of playback, so a long document does
  *  not decode minutes of audio into memory before anyone hears it. */
@@ -108,6 +159,7 @@ const player = new SpeechPlayer({
       startedTabId = null;
       startedContent = "";
       activeAbort = null;
+      clearSentence();
     }
   },
   onProgress: (value) => {
@@ -116,6 +168,7 @@ const player = new SpeechPlayer({
       duration: value.duration,
       total: value.complete ? value.duration : progress.total,
     });
+    publishSentence(value.position);
   },
   onError: reportError,
 });
@@ -141,6 +194,7 @@ function cancelCurrentRun(): Promise<void> {
   startedTabId = null;
   startedContent = "";
   resetProgress();
+  clearSentence();
   return cleanup;
 }
 
@@ -182,7 +236,8 @@ async function startSpeech(): Promise<void> {
   const tab = tabStore.getActiveTab();
   if (!tab) return;
 
-  const chunks = splitSpeechChunks(tab.content);
+  const speechPlan = buildSpeechPlan(tab.content);
+  const chunks = speechPlan.chunks;
   if (chunks.length === 0) {
     showToast(translate("speech.emptyDocument"), 5000);
     return;
@@ -205,6 +260,11 @@ async function startSpeech(): Promise<void> {
   startedContent = tab.content;
   resetProgress();
   cleanupPart = null;
+  plan = speechPlan;
+  chunkSpans = [];
+  timings = [];
+  timingIndex = -1;
+  speechSentence.set(null);
 
   if (cacheable && (await hasValidCache(tab.filePath, hash)) && run === runId) {
     try {
@@ -217,7 +277,15 @@ async function startSpeech(): Promise<void> {
         bitrate: meta?.bitrate ?? null,
         total: meta?.duration ?? null,
       });
+      // A cache hit decodes into one segment, so the chunk spans are unknown;
+      // every sentence is placed by its share of the whole text instead.
+      timings = sentenceTimings(speechPlan, [], meta?.duration ?? 0);
       await player.startCached(data);
+      if (run !== runId) return;
+      if (timings.length === 0) {
+        timings = sentenceTimings(speechPlan, [], player.generatedSeconds);
+      }
+      publishSentence(player.position);
       return;
     } catch {
       // A cache that exists but cannot be read or decoded is not usable;
@@ -290,6 +358,11 @@ async function startSpeech(): Promise<void> {
       if (run !== runId) return;
       if (outcome.skipped) warnSkipped();
 
+      // A chunk may decode to several buffers when it had to be re-split; its
+      // span on the timeline is the first buffer's start to the last one's end.
+      let chunkStart: number | null = null;
+      let chunkEnd = 0;
+
       for (const raw of outcome.buffers) {
         let buffer: AudioBuffer;
         try {
@@ -299,7 +372,10 @@ async function startSpeech(): Promise<void> {
           continue;
         }
         if (run !== runId) return;
+        const before = player.generatedSeconds;
         player.appendSegment(buffer);
+        if (chunkStart === null) chunkStart = before;
+        chunkEnd = player.generatedSeconds;
 
         if (cacheWriting) {
           try {
@@ -316,6 +392,11 @@ async function startSpeech(): Promise<void> {
             warnWriteFailure();
           }
         }
+      }
+
+      if (chunkStart !== null) {
+        chunkSpans[i] = { start: chunkStart, end: chunkEnd };
+        refreshTimings();
       }
 
       setProgress({ generation: Math.round(((i + 1) / chunks.length) * 100) });

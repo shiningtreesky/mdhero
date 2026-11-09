@@ -103,7 +103,9 @@
     "speechTitleNoFile": "Read aloud (open a file first)",
     "speechTitleEditing": "Read aloud (exit edit mode to use)",
     "speechRate": "Speech rate",
-    "speechRateAria": "Speech rate"
+    "speechRateAria": "Speech rate",
+    "speechHighlight": "Highlight spoken sentence",
+    "speechOptions": "Read-aloud options"
   },
   "speech": {
     "emptyDocument": "There is no readable text in this document.",

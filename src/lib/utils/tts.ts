@@ -288,17 +288,40 @@ function wrapLongSentence(sentence: string, maxChars: number): string[] {
   return out;
 }
 
+/** One spoken sentence (or one piece of a sentence too long for a request),
+ *  located inside the chunk it was packed into. The read-aloud highlight uses
+ *  the character range to place the sentence on the audio timeline. */
+export interface SpeechSentence {
+  text: string;
+  /** Index into `SpeechPlan.chunks`. */
+  chunkIndex: number;
+  /** Offsets inside that chunk's text. */
+  start: number;
+  end: number;
+}
+
+export interface SpeechPlan {
+  chunks: SpeechChunk[];
+  /** Every chunk's sentences, in reading order. */
+  sentences: SpeechSentence[];
+}
+
 /**
  * The document as ordered speech chunks, each with the voice language it should
- * be read in. Adjacent sentences of the same language are packed together so a
- * short paragraph is not one request per sentence.
+ * be read in, plus the sentence → chunk mapping. Adjacent sentences of the same
+ * language are packed together so a short paragraph is not one request per
+ * sentence; a sentence longer than one request is split and contributes one
+ * entry per piece.
  */
-export function splitSpeechChunks(
+export function buildSpeechPlan(
   markdown: string,
   maxChars = TTS_CHUNK_MAX_CHARS,
-): SpeechChunk[] {
+): SpeechPlan {
   const chunks: SpeechChunk[] = [];
+  const sentences: SpeechSentence[] = [];
   let current: SpeechChunk | null = null;
+  /** Index `current` will have once it is pushed. */
+  let currentIndex = 0;
 
   const push = (piece: string) => {
     // Punctuation and whitespace alone are not speech: they would be answered
@@ -311,11 +334,15 @@ export function splitSpeechChunks(
       current.language === language &&
       current.text.length + 1 + piece.length <= maxChars
     ) {
+      const start = current.text.length + 1;
       current.text = `${current.text} ${piece}`;
+      sentences.push({ text: piece, chunkIndex: currentIndex, start, end: start + piece.length });
       return;
     }
     if (current) chunks.push(current);
     current = { text: piece, language };
+    currentIndex = chunks.length;
+    sentences.push({ text: piece, chunkIndex: currentIndex, start: 0, end: piece.length });
   };
 
   for (const paragraph of extractSpeechParagraphs(markdown)) {
@@ -325,7 +352,16 @@ export function splitSpeechChunks(
   }
   if (current) chunks.push(current);
 
-  return chunks;
+  return { chunks, sentences };
+}
+
+/** The document as ordered speech chunks, each with the voice language it should
+ *  be read in. */
+export function splitSpeechChunks(
+  markdown: string,
+  maxChars = TTS_CHUNK_MAX_CHARS,
+): SpeechChunk[] {
+  return buildSpeechPlan(markdown, maxChars).chunks;
 }
 
 const CLAUSE_BREAK_RE = /(?<=[。！？!?；;，,、：:])\s*/u;
