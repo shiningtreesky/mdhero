@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   cleanGlossText,
+  cleanPhonetic,
   countChineseChars,
   countLatinWords,
   formatGloss,
+  formatPhonetic,
   isEnglishDocument,
   normalizeWord,
+  parsePhoneticReply,
   tokenizeWords,
 } from "../../src/lib/utils/glossary";
 import {
   createMemoryGlossCache,
   glossaryCachePath,
   parseGlossCache,
+  parseGlossCacheDocument,
 } from "../../src/lib/glossary/cache";
 
 describe("word splitting", () => {
@@ -99,6 +103,95 @@ describe("gloss cleaning", () => {
   });
 });
 
+describe("phonetic replies", () => {
+  it("parses the requested two-line format", () => {
+    const reply = parsePhoneticReply("UK: /ˈtəʊkən/\nUS: /ˈtoʊkən/");
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "ˈtəʊkən", us: "ˈtoʊkən" });
+  });
+
+  it("parses labels without slashes, on one line", () => {
+    const reply = parsePhoneticReply("UK: ˈtəʊkən  US: ˈtoʊkən");
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "ˈtəʊkən", us: "ˈtoʊkən" });
+  });
+
+  it("parses Chinese accent labels", () => {
+    const reply = parsePhoneticReply("英式：/ˈtəʊkən/  美式：/ˈtoʊkən/");
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "ˈtəʊkən", us: "ˈtoʊkən" });
+  });
+
+  it("accepts bare transcriptions when the labels were dropped", () => {
+    expect(parsePhoneticReply("/ˈtəʊkən/")).toEqual({
+      phonetic: { uk: "ˈtəʊkən", us: "ˈtəʊkən" },
+      attempted: true,
+    });
+    expect(parsePhoneticReply("/ˈtəʊkən/\n/ˈtoʊkən/").phonetic).toEqual({
+      uk: "ˈtəʊkən",
+      us: "ˈtoʊkən",
+    });
+  });
+
+  it("parses a JSON reply and strips code fences", () => {
+    const reply = parsePhoneticReply(
+      '```json\n{"uk":"/ˈtəʊkən/","us":"[ˈtoʊkən] (US)"}\n```',
+    );
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "ˈtəʊkən", us: "ˈtoʊkən" });
+  });
+
+  it("accepts a single unlabelled transcription for both accents", () => {
+    const reply = parsePhoneticReply('{"phonetic":"ˈtəʊkən"}');
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "ˈtəʊkən", us: "ˈtəʊkən" });
+  });
+
+  it("treats an explicit empty JSON pair as an answer", () => {
+    const reply = parsePhoneticReply('{"uk":"","us":""}');
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "", us: "" });
+  });
+
+  it("does not treat an unrelated JSON object as a transcription", () => {
+    const reply = parsePhoneticReply('{"translation":"令牌"}');
+    expect(reply.attempted).toBe(false);
+  });
+
+  it("does not mistake a slashed gloss for IPA", () => {
+    expect(parsePhoneticReply("run / operate").attempted).toBe(false);
+  });
+
+  it("reports a reply that ignored the transcription request", () => {
+    const reply = parsePhoneticReply("令牌 / 标志");
+    expect(reply.attempted).toBe(false);
+    expect(reply.phonetic).toEqual({ uk: "", us: "" });
+  });
+
+  it("treats explicit unknown values as an answer, not a retry", () => {
+    const reply = parsePhoneticReply("UK: //\nUS: //");
+    expect(reply.attempted).toBe(true);
+    expect(reply.phonetic).toEqual({ uk: "", us: "" });
+  });
+
+  it("formats only the accents the user selected", () => {
+    const phonetic = { uk: "ˈtəʊkən", us: "ˈtoʊkən" };
+    expect(formatPhonetic(phonetic, true, true, "英", "美")).toBe(
+      "英 /ˈtəʊkən/  美 /ˈtoʊkən/",
+    );
+    expect(formatPhonetic(phonetic, true, false, "英", "美")).toBe("英 /ˈtəʊkən/");
+    expect(formatPhonetic(phonetic, false, true, "英", "美")).toBe("美 /ˈtoʊkən/");
+    expect(formatPhonetic({ uk: "x", us: "x" }, true, true, "英", "美")).toBe("/x/");
+  });
+
+  it("rejects values that are not transcriptions", () => {
+    expect(cleanPhonetic("unknown")).toBe("");
+    expect(cleanPhonetic("(unknown)")).toBe("");
+    expect(cleanPhonetic("中文")).toBe("");
+    expect(cleanPhonetic(42)).toBe("");
+  });
+});
+
 describe("gloss cache files", () => {
   it("puts the cache next to the Markdown file", () => {
     expect(glossaryCachePath("C:\\docs\\技术文档.md")).toBe("C:\\docs\\技术文档.words.json");
@@ -127,11 +220,49 @@ describe("gloss cache files", () => {
     expect(parseGlossCache(JSON.stringify({ version: 1 }))).toEqual({});
   });
 
+  it("parses phonetics and keeps version-1 caches working", () => {
+    const text = JSON.stringify({
+      version: 2,
+      glosses: { token: ["令牌"] },
+      phonetics: { token: { uk: "ˈtəʊkən", us: "ˈtoʊkən" } },
+    });
+    expect(parseGlossCacheDocument(text)).toEqual({
+      glosses: { token: ["令牌"] },
+      phonetics: { token: { uk: "ˈtəʊkən", us: "ˈtoʊkən" } },
+    });
+    expect(
+      parseGlossCacheDocument(JSON.stringify({ version: 1, glosses: { run: ["跑"] } }))
+        .phonetics,
+    ).toEqual({});
+  });
+
+  it("drops stale empty phonetic markers so they can be refreshed", () => {
+    const text = JSON.stringify({
+      version: 2,
+      glosses: { token: ["令牌"], run: ["跑"] },
+      phonetics: {
+        token: { uk: "", us: "" },
+        run: { uk: "rʌn", us: "rʌn" },
+      },
+    });
+    expect(parseGlossCacheDocument(text).phonetics).toEqual({
+      run: { uk: "rʌn", us: "rʌn" },
+    });
+  });
+
   it("keeps entries in an in-memory cache", async () => {
     const cache = createMemoryGlossCache();
     await cache.ready;
     expect(cache.get("token")).toBeUndefined();
     cache.set("token", ["令牌", "标记", "代币"]);
     expect(cache.get("token")).toEqual(["令牌", "标记"]);
+  });
+
+  it("keeps phonetics in an in-memory cache", async () => {
+    const cache = createMemoryGlossCache();
+    await cache.ready;
+    expect(cache.getPhonetics("token")).toBeUndefined();
+    cache.set("token", ["令牌"], { uk: "ˈtəʊkən", us: "ˈtoʊkən" });
+    expect(cache.getPhonetics("token")).toEqual({ uk: "ˈtəʊkən", us: "ˈtoʊkən" });
   });
 });

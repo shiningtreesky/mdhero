@@ -35,11 +35,14 @@
 
   function restoreDefaults() {
     form = { ...DEFAULT_GLOSSARY_SETTINGS };
-    // The 朗读 checkbox is immediate, so restoring defaults must reset it now
-    // rather than waiting for Save.
+    // The 朗读/音标 checkboxes are immediate, so restoring defaults must reset
+    // them now rather than waiting for Save.
     glossarySettings.update((current) => ({
       ...current,
       speakOnClick: DEFAULT_GLOSSARY_SETTINGS.speakOnClick,
+      showPhonetic: DEFAULT_GLOSSARY_SETTINGS.showPhonetic,
+      phoneticUk: DEFAULT_GLOSSARY_SETTINGS.phoneticUk,
+      phoneticUs: DEFAULT_GLOSSARY_SETTINGS.phoneticUs,
     }));
     error = "";
   }
@@ -55,13 +58,17 @@
       error = translate("translation.modelRequired");
       return;
     }
-    // The 朗读 checkbox is applied immediately, independently of Save/Cancel,
-    // so preserve its current value when the endpoint fields are saved.
+    // The 朗读/音标 checkboxes are applied immediately, independently of
+    // Save/Cancel, so preserve their current values when the endpoint fields
+    // are saved.
     glossarySettings.set({
       baseUrl,
       apiKey: form.apiKey,
       model,
       speakOnClick: $glossarySettings.speakOnClick,
+      showPhonetic: $glossarySettings.showPhonetic,
+      phoneticUk: $glossarySettings.phoneticUk,
+      phoneticUs: $glossarySettings.phoneticUs,
     });
     visible = false;
   }
@@ -69,6 +76,21 @@
   function handleSpeakOnClick(event: Event) {
     const checked = (event.currentTarget as HTMLInputElement).checked;
     glossarySettings.update((current) => ({ ...current, speakOnClick: checked }));
+  }
+
+  function handleShowPhonetic(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    glossarySettings.update((current) => ({ ...current, showPhonetic: checked }));
+  }
+
+  function handlePhoneticUk(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    glossarySettings.update((current) => ({ ...current, phoneticUk: checked }));
+  }
+
+  function handlePhoneticUs(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    glossarySettings.update((current) => ({ ...current, phoneticUs: checked }));
   }
 </script>
 
@@ -128,6 +150,47 @@
             placeholder="hy-mt2-1.8b"
           />
         </label>
+
+        <!-- IPA comes from the same gloss endpoint/model. All three checkboxes
+             take effect immediately, so they are not part of the form state.
+             The accent choices only matter while 音标 is on. -->
+        <div class="phonetic-section">
+          <label class="checkbox-field">
+            <input
+              type="checkbox"
+              checked={$glossarySettings.showPhonetic}
+              onchange={handleShowPhonetic}
+            />
+            <span class="checkbox-copy">
+              <span class="field-label">{$t('glossary.phonetic')}</span>
+              <span class="field-hint">{$t('glossary.phoneticHint')}</span>
+            </span>
+          </label>
+          <div class="phonetic-accents" class:disabled={!$glossarySettings.showPhonetic}>
+            <label class="checkbox-field">
+              <input
+                type="checkbox"
+                checked={$glossarySettings.phoneticUk}
+                disabled={!$glossarySettings.showPhonetic}
+                onchange={handlePhoneticUk}
+              />
+              <span class="checkbox-copy">
+                <span class="field-label">{$t('glossary.phoneticUk')}</span>
+              </span>
+            </label>
+            <label class="checkbox-field">
+              <input
+                type="checkbox"
+                checked={$glossarySettings.phoneticUs}
+                disabled={!$glossarySettings.showPhonetic}
+                onchange={handlePhoneticUs}
+              />
+              <span class="checkbox-copy">
+                <span class="field-label">{$t('glossary.phoneticUs')}</span>
+              </span>
+            </label>
+          </div>
+        </div>
 
         <!-- Speech is separate from the gloss endpoint above: it uses the
              read-aloud backend, not Base URL / API Key / model. The checkbox
@@ -287,14 +350,27 @@
     color: #8e8e93;
   }
 
+  .phonetic-section,
   .speech-section {
     margin-top: 4px;
     padding-top: 14px;
     border-top: 1px solid #f2f2f7;
   }
 
+  :global(html.dark) .phonetic-section,
   :global(html.dark) .speech-section {
     border-top-color: #3a3a3c;
+  }
+
+  .phonetic-accents {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0 0 22px;
+  }
+
+  .phonetic-accents.disabled {
+    opacity: 0.55;
   }
 
   .checkbox-field {

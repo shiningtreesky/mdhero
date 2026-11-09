@@ -3,9 +3,10 @@
 //!
 //! The cache files sit next to the Markdown source as `<document>.words.json`
 //! and `<document>.sentences.json`:
-//! `{"version":1,"glosses":{"word":["释义1","释义2"]}}`. Writes are serialised
-//! by a Mutex and go through a temp file + rename, so two quick lookups cannot
-//! corrupt a half-written file.
+//! `{"version":2,"glosses":{"word":["释义1","释义2"]},"phonetics":{"word":{"uk":"","us":""}}}`.
+//! Version-1 files (glosses only) still load. Writes are serialised by a Mutex
+//! and go through a temp file + rename, so two quick lookups cannot corrupt a
+//! half-written file.
 
 use std::fs;
 use std::path::PathBuf;
@@ -39,15 +40,28 @@ pub fn glossary_read(path: String) -> Result<Option<String>, String> {
     }
 }
 
-/// Insert one word into the cache and write it back atomically.
+/// Insert one word (and optionally its IPA) into the cache and write it back
+/// atomically.
 #[tauri::command]
-pub fn glossary_store(path: String, word: String, glosses: Vec<String>) -> Result<(), String> {
+pub fn glossary_store(
+    path: String,
+    word: String,
+    glosses: Vec<String>,
+    phonetic_uk: Option<String>,
+    phonetic_us: Option<String>,
+) -> Result<(), String> {
     let _guard = WRITE_LOCK
         .lock()
         .map_err(|_| "Glossary cache lock poisoned".to_string())?;
     let p = check_cache_path(&path)?;
     let existing = fs::read_to_string(&p).ok();
-    let merged = upsert_glossary(existing.as_deref(), &word, &glosses);
+    let merged = upsert_glossary(
+        existing.as_deref(),
+        &word,
+        &glosses,
+        phonetic_uk.as_deref(),
+        phonetic_us.as_deref(),
+    );
 
     let tmp = p.with_extension("json.tmp");
     fs::write(&tmp, serde_json::to_vec_pretty(&merged).unwrap_or_default())
@@ -59,17 +73,36 @@ pub fn glossary_store(path: String, word: String, glosses: Vec<String>) -> Resul
 }
 
 /// Merge one entry into the cache JSON, tolerating a missing or damaged file.
-fn upsert_glossary(existing: Option<&str>, word: &str, glosses: &[String]) -> Value {
+/// Version-1 files (glosses only) are upgraded in place; the `phonetics` map is
+/// only created when the caller actually asked the model for IPA, so sentence
+/// caches stay unchanged.
+fn upsert_glossary(
+    existing: Option<&str>,
+    word: &str,
+    glosses: &[String],
+    phonetic_uk: Option<&str>,
+    phonetic_us: Option<&str>,
+) -> Value {
     let mut doc = existing
         .and_then(|text| serde_json::from_str::<Value>(text).ok())
         .filter(|value| value.is_object())
-        .unwrap_or_else(|| json!({ "version": 1, "glosses": {} }));
+        .unwrap_or_else(|| json!({ "version": 2, "glosses": {} }));
 
     if !doc["glosses"].is_object() {
         doc["glosses"] = json!({});
     }
-    doc["version"] = json!(1);
+    doc["version"] = json!(2);
     doc["glosses"][word] = json!(glosses);
+
+    if phonetic_uk.is_some() || phonetic_us.is_some() {
+        if !doc["phonetics"].is_object() {
+            doc["phonetics"] = json!({});
+        }
+        doc["phonetics"][word] = json!({
+            "uk": phonetic_uk.unwrap_or(""),
+            "us": phonetic_us.unwrap_or(""),
+        });
+    }
     doc
 }
 
@@ -135,6 +168,19 @@ async fn request_chat(
     Ok(content.to_string())
 }
 
+const GLOSS_PROMPT: &str = "You are a dictionary. Reply with only the most common Chinese meaning(s) of the given English word or phrase: one meaning, at most two for genuinely polysemous words, separated by \"/\". No explanations, no part of speech, no examples, no English.";
+
+/// Dedicated IPA request, separate from the gloss request so a model that
+/// ignores this format can never damage the Chinese meaning. The example makes
+/// the two-line shape explicit for small instruction-following models.
+const PHONETIC_PROMPT: &str = r#"You are an English pronunciation dictionary. Reply with only the British and American IPA of the English word or phrase the user sends, in exactly this format:
+UK: /British IPA/
+US: /American IPA/
+Example for "token":
+UK: /ˈtəʊkən/
+US: /ˈtoʊkən/
+Do not repeat the example; transcribe the word the user sends. No other text, no Chinese, no explanations. If a transcription is unknown, reply with UK: // or US: //."#;
+
 /// Ask the dictionary model for a word's Chinese meaning.
 #[tauri::command]
 pub async fn glossary_lookup(
@@ -143,15 +189,18 @@ pub async fn glossary_lookup(
     model: String,
     word: String,
 ) -> Result<String, String> {
-    request_chat(
-        &base_url,
-        &api_key,
-        &model,
-        "You are a dictionary. Reply with only the most common Chinese meaning(s) of the given English word: one meaning, at most two for genuinely polysemous words, separated by \"/\". No explanations, no part of speech, no examples, no English.",
-        &word,
-        32,
-    )
-    .await
+    request_chat(&base_url, &api_key, &model, GLOSS_PROMPT, &word, 32).await
+}
+
+/// Ask only for IPA. The frontend merges it with the separately fetched gloss.
+#[tauri::command]
+pub async fn glossary_lookup_phonetic(
+    base_url: String,
+    api_key: String,
+    model: String,
+    word: String,
+) -> Result<String, String> {
+    request_chat(&base_url, &api_key, &model, PHONETIC_PROMPT, &word, 80).await
 }
 
 /// Translate one English sentence into Chinese through the same endpoint and
@@ -180,22 +229,40 @@ mod tests {
 
     #[test]
     fn creates_a_cache_document() {
-        let doc = upsert_glossary(None, "token", &["令牌".to_string()]);
-        assert_eq!(doc["version"], 1);
+        let doc = upsert_glossary(None, "token", &["令牌".to_string()], None, None);
+        assert_eq!(doc["version"], 2);
         assert_eq!(doc["glosses"]["token"][0], "令牌");
+        assert!(doc.get("phonetics").is_none());
     }
 
     #[test]
     fn keeps_other_words_and_overwrites_the_same_one() {
         let existing = r#"{"version":1,"glosses":{"run":["跑"],"token":["象征"]}}"#;
-        let doc = upsert_glossary(Some(existing), "token", &["令牌".to_string()]);
+        let doc = upsert_glossary(Some(existing), "token", &["令牌".to_string()], None, None);
         assert_eq!(doc["glosses"]["run"][0], "跑");
         assert_eq!(doc["glosses"]["token"][0], "令牌");
     }
 
     #[test]
     fn recovers_from_a_damaged_file() {
-        let doc = upsert_glossary(Some("{ broken"), "word", &["词".to_string()]);
+        let doc = upsert_glossary(Some("{ broken"), "word", &["词".to_string()], None, None);
         assert_eq!(doc["glosses"]["word"][0], "词");
+    }
+
+    #[test]
+    fn stores_phonetics_and_upgrades_the_document_version() {
+        let existing = r#"{"version":1,"glosses":{"run":["跑"]}}"#;
+        let doc = upsert_glossary(
+            Some(existing),
+            "token",
+            &["令牌".to_string()],
+            Some("ˈtəʊkən"),
+            Some("ˈtoʊkən"),
+        );
+        assert_eq!(doc["version"], 2);
+        assert_eq!(doc["glosses"]["run"][0], "跑");
+        assert_eq!(doc["glosses"]["token"][0], "令牌");
+        assert_eq!(doc["phonetics"]["token"]["uk"], "ˈtəʊkən");
+        assert_eq!(doc["phonetics"]["token"]["us"], "ˈtoʊkən");
     }
 }

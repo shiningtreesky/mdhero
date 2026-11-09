@@ -201,14 +201,6 @@
     tick().then(() => {
       if (!articleEl) return;
 
-      // The shared TOC and the active-heading highlight belong to the primary
-      // document, so the dual pane's second copy stays out of both.
-      if (!secondary) {
-        const entries = extractToc(articleEl);
-        tocEntries.set(entries);
-        setupTocObserver();
-      }
-
       // Add copy buttons to code blocks
       addCodeCopyButtons();
 
@@ -223,6 +215,22 @@
 
       // Render Mermaid diagrams
       renderMermaidBlocks();
+    });
+  });
+
+  // The shared TOC and the active-heading highlight belong to the primary
+  // document, so the dual pane's second copy stays out of both. `secondary` is
+  // read here, not inside the tick above, so moving focus between columns hands
+  // the TOC over even when the rendered html did not change.
+  $effect(() => {
+    html;
+    secondary;
+    if (secondary) return;
+
+    tick().then(() => {
+      if (!articleEl) return;
+      tocEntries.set(extractToc(articleEl));
+      setupTocObserver();
     });
   });
 

@@ -150,6 +150,7 @@ pub fn run() {
             glossary::glossary_read,
             glossary::glossary_store,
             glossary::glossary_lookup,
+            glossary::glossary_lookup_phonetic,
             glossary::glossary_lookup_sentence,
             paras::paras_read,
             paras::paras_store,

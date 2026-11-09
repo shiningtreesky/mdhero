@@ -9,6 +9,12 @@ export interface GlossarySettings {
   model: string;
   /** Left-clicking a word in reading mode also speaks it aloud. */
   speakOnClick: boolean;
+  /** Show the word's IPA above its gloss in the bubble. */
+  showPhonetic: boolean;
+  /** Include British IPA when `showPhonetic` is on. */
+  phoneticUk: boolean;
+  /** Include American IPA when `showPhonetic` is on. */
+  phoneticUs: boolean;
 }
 
 export const DEFAULT_GLOSSARY_SETTINGS: GlossarySettings = {
@@ -16,6 +22,9 @@ export const DEFAULT_GLOSSARY_SETTINGS: GlossarySettings = {
   apiKey: "1234",
   model: "hy-mt2-1.8b",
   speakOnClick: false,
+  showPhonetic: false,
+  phoneticUk: true,
+  phoneticUs: true,
 };
 
 const STORAGE_KEY = "mdhero:glossary";
@@ -40,6 +49,9 @@ function load(): GlossarySettings {
       apiKey: asString(parsed.apiKey, DEFAULT_GLOSSARY_SETTINGS.apiKey),
       model: asString(parsed.model, DEFAULT_GLOSSARY_SETTINGS.model),
       speakOnClick: asBoolean(parsed.speakOnClick, DEFAULT_GLOSSARY_SETTINGS.speakOnClick),
+      showPhonetic: asBoolean(parsed.showPhonetic, DEFAULT_GLOSSARY_SETTINGS.showPhonetic),
+      phoneticUk: asBoolean(parsed.phoneticUk, DEFAULT_GLOSSARY_SETTINGS.phoneticUk),
+      phoneticUs: asBoolean(parsed.phoneticUs, DEFAULT_GLOSSARY_SETTINGS.phoneticUs),
     };
   } catch {
     return { ...DEFAULT_GLOSSARY_SETTINGS };

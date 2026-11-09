@@ -34,3 +34,36 @@ describe("glossary speak-on-click setting", () => {
     }
   });
 });
+
+describe("glossary phonetic settings", () => {
+  it("defaults to off with both accents selected", async () => {
+    const settings = await loadGlossaryWith(null);
+    expect(settings.showPhonetic).toBe(false);
+    expect(settings.phoneticUk).toBe(true);
+    expect(settings.phoneticUs).toBe(true);
+  });
+
+  it("restores saved choices", async () => {
+    const stored = JSON.stringify({
+      showPhonetic: true,
+      phoneticUk: false,
+      phoneticUs: true,
+    });
+    const settings = await loadGlossaryWith(stored);
+    expect(settings.showPhonetic).toBe(true);
+    expect(settings.phoneticUk).toBe(false);
+    expect(settings.phoneticUs).toBe(true);
+  });
+
+  it("falls back to defaults for non-booleans", async () => {
+    const stored = JSON.stringify({
+      showPhonetic: "yes",
+      phoneticUk: null,
+      phoneticUs: 0,
+    });
+    const settings = await loadGlossaryWith(stored);
+    expect(settings.showPhonetic).toBe(false);
+    expect(settings.phoneticUk).toBe(true);
+    expect(settings.phoneticUs).toBe(true);
+  });
+});

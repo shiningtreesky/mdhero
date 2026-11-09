@@ -74,6 +74,11 @@
   import { createWheelZoom } from "$lib/utils/wheel-zoom";
   import { chromeTopFor, chromeTop, sideTabsWidth } from "$lib/utils/layout";
   import { focusedPane, rightPaneOpen } from "$lib/stores/panes";
+  import {
+    concealedTabs,
+    pruneConcealed,
+    toggleConcealed,
+  } from "$lib/stores/concealedTabs";
   import { A4_HEIGHT, A4_WIDTH, SIDE_COLUMN_WIDTH, type PageLayout } from "$lib/utils/page";
   import { fitWindowToPage } from "$lib/tauri/page-window";
   import { saveProgress, getProgress } from "$lib/stores/readingProgress";
@@ -251,6 +256,24 @@
   // and view switches therefore target the tab actually open in the editor.
   let editorTab = $derived<Tab | null>(leftTab?.isEditing ? leftTab : activeTab);
   let rightOpen = $derived($rightPaneOpen);
+  // Column concealment ("左"/"右"): each tab remembers its own cover state, so
+  // switching to another document and back keeps the previous state. It is
+  // only meaningful while both reading columns are on screen.
+  let canConceal = $derived(
+    rightOpen
+      && !zenMode
+      && !presenting
+      && !!leftTab
+      && !!rightTab
+      && !leftTab.isEditing,
+  );
+  let leftConcealed = $derived(!!leftTab && $concealedTabs.has(leftTab.id));
+  let rightConcealed = $derived(!!rightTab && $concealedTabs.has(rightTab.id));
+  // The shared ToC follows the focused column; hide it when that column is
+  // covered, or its headings would leak the text the user wants to recall.
+  let tocConcealed = $derived(
+    canConceal && ((focusedLeft && leftConcealed) || (!focusedLeft && rightConcealed)),
+  );
   let canEditActive = $derived(
     !!editorTab?.filePath
     && !editorTab.filePath.startsWith("paste://")
@@ -381,6 +404,13 @@
   $effect(() => {
     const width = rightOpen && !presenting && !zenMode ? SIDE_COLUMN_WIDTH : 0;
     document.documentElement.style.setProperty("--side-w", `${width}px`);
+  });
+
+  // A closed tab can never be shown again, so drop its cover state. The
+  // `some` guard keeps the store update out of an effect loop.
+  $effect(() => {
+    const live = new Set($tabs.map((tab) => tab.id));
+    if ([...$concealedTabs].some((id) => !live.has(id))) pruneConcealed(live);
   });
 
   // One A4 sheet per column, every launch. Split and Dual are the two layouts
@@ -969,6 +999,16 @@
   function handleRawToggle() {
     if (editorTab?.isEditing) return;
     switchMode(rawMode ? "viewer" : "raw");
+  }
+
+  function toggleLeftConceal(): void {
+    if (!canConceal) return;
+    toggleConcealed(leftTab?.id);
+  }
+
+  function toggleRightConceal(): void {
+    if (!canConceal) return;
+    toggleConcealed(rightTab?.id);
   }
 
   async function handleCloseTab(id: string): Promise<boolean> {
@@ -1701,6 +1741,12 @@
       editMode={activeEditMode}
       dual={rightOpen}
       onSetMode={setMode}
+      canConceal={canConceal}
+      leftConcealed={leftConcealed}
+      rightConcealed={rightConcealed}
+      concealHeading={tocConcealed}
+      onToggleConcealLeft={toggleLeftConceal}
+      onToggleConcealRight={toggleRightConceal}
       onSave={saveFromToolbar}
       onOpenSettings={() => (settingsVisible = true)}
       canTranslate={!!activeTab}
@@ -1743,7 +1789,7 @@
   {/if}
   <TabDragGhost />
   <DropZone />
-  {#if !zenMode && !activeTab?.isEditing}
+  {#if !zenMode && !activeTab?.isEditing && !tocConcealed}
     <TableOfContents />
   {/if}
   <SpeechBar />
@@ -1839,7 +1885,12 @@
         />
       {/key}
     {:else if rawMode}
-      <main class="content-main" class:toc-spaced={$tocVisible && $tocEntries.length > 0} data-focused={focusedLeft || undefined}>
+      <main
+        class="content-main"
+        class:toc-spaced={$tocVisible && $tocEntries.length > 0}
+        class:concealed={canConceal && leftConcealed}
+        data-focused={focusedLeft || undefined}
+      >
         <div
           class="raw-stack sheet"
           class:with-gutter={rawGutterOn}
@@ -1867,6 +1918,7 @@
       <main
         class="content-main"
         class:toc-spaced={$tocVisible && $tocEntries.length > 0}
+        class:concealed={canConceal && leftConcealed}
         data-focused={focusedLeft || undefined}
         use:glossary={{
           enabled: $glossaryMode && leftIsEnglish && glossLayoutOk,
@@ -1900,6 +1952,7 @@
            `secondary` prop carries the inverse of that. -->
       <section
         class="side-pane"
+        class:concealed={canConceal && rightConcealed}
         data-focused={!focusedLeft || undefined}
         use:glossary={{
           enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
@@ -2061,6 +2114,14 @@
   :global(html.dark) .side-pane {
     background: #161618;
     border-left-color: #2c2c2e;
+  }
+
+  /* Covering a column hides its contents, not its box: `visibility` keeps the
+     layout height, scroll position and pane seam exactly where they were, so
+     restoring a column never jumps the page. */
+  :global(.content-main.concealed > *),
+  :global(.side-pane.concealed > *) {
+    visibility: hidden;
   }
 
   :global(html.tabs-resizing) {

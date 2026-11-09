@@ -27,6 +27,15 @@
     editMode = "view",
     dual = false,
     onSetMode = (_m: "view" | "split" | "dual" | "edit") => {},
+    /** Dual reading layout: the 左/右 cover buttons can act. */
+    canConceal = false,
+    /** Per-tab cover state; only meaningful while `canConceal`. */
+    leftConcealed = false,
+    rightConcealed = false,
+    /** The focused column is covered, so its heading must not leak in the bar. */
+    concealHeading = false,
+    onToggleConcealLeft = () => {},
+    onToggleConcealRight = () => {},
     onSave = () => {},
     onOpenSettings = () => {},
     canPresent = false,
@@ -76,6 +85,12 @@
     editMode?: "view" | "split" | "edit";
     dual?: boolean;
     onSetMode?: (m: "view" | "split" | "dual" | "edit") => void;
+    canConceal?: boolean;
+    leftConcealed?: boolean;
+    rightConcealed?: boolean;
+    concealHeading?: boolean;
+    onToggleConcealLeft?: () => void;
+    onToggleConcealRight?: () => void;
     onSave?: () => void;
     onOpenSettings?: () => void;
     canPresent?: boolean;
@@ -126,6 +141,21 @@
   let showCopyMenu = $state(false);
   let showSpeedPopover = $state(false);
   let copyFeedback = $state("");
+
+  let leftConcealTitle = $derived(
+    !canConceal
+      ? $t("toolbar.concealDisabled")
+      : leftConcealed
+        ? $t("toolbar.concealLeftShowTitle")
+        : $t("toolbar.concealLeftTitle"),
+  );
+  let rightConcealTitle = $derived(
+    !canConceal
+      ? $t("toolbar.concealDisabled")
+      : rightConcealed
+        ? $t("toolbar.concealRightShowTitle")
+        : $t("toolbar.concealRightTitle"),
+  );
 
   let speechTitle = $derived(
     !canSpeak || isEditing
@@ -372,12 +402,36 @@
       </button>
     </div>
 
-    {#if $document.fileName && currentHeading}
+    {#if $document.fileName && currentHeading && !concealHeading}
       <span class="current-heading" title={currentHeading}>{currentHeading}</span>
     {/if}
   </div>
 
   <div class="toolbar-right">
+    <!-- 左/右: cover one reading column while the other stays visible. Each
+         is an independent toggle, so both can be covered at once; the state
+         is per tab and only applies in the dual reading layout. -->
+    <div class="conceal-group" role="group" aria-label={$t('toolbar.concealAria')}>
+      <button
+        class="conceal-btn"
+        class:active={canConceal && leftConcealed}
+        disabled={!canConceal}
+        aria-pressed={canConceal && leftConcealed}
+        aria-label={leftConcealTitle}
+        title={leftConcealTitle}
+        onclick={() => { closeAll(); onToggleConcealLeft(); }}
+      >{$t('toolbar.concealLeft')}</button>
+      <button
+        class="conceal-btn"
+        class:active={canConceal && rightConcealed}
+        disabled={!canConceal}
+        aria-pressed={canConceal && rightConcealed}
+        aria-label={rightConcealTitle}
+        title={rightConcealTitle}
+        onclick={() => { closeAll(); onToggleConcealRight(); }}
+      >{$t('toolbar.concealRight')}</button>
+    </div>
+
     <!-- View / Split / Edit segmented control: leads the right button group so
          the right side keeps room for new buttons. Split & Edit need an
          editable local file; when there isn't one they disable with an
@@ -1202,6 +1256,53 @@
     background: #3a3a3c;
   }
 
+  /* 左/右 cover toggles: a compact pair at the head of the right cluster. */
+  .conceal-group {
+    display: inline-flex;
+    align-items: stretch;
+    height: 28px;
+    padding: 2px;
+    gap: 2px;
+    background: #e8e8ed;
+    border-radius: 7px;
+    flex-shrink: 0;
+    margin-right: 4px;
+  }
+
+  :global(html.dark) .conceal-group {
+    background: #2c2c2e;
+  }
+
+  .conceal-btn {
+    border: none;
+    background: transparent;
+    color: #5f6368;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 0 7px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .conceal-btn:hover:not(:disabled):not(.active) {
+    color: #1c1c1e;
+  }
+
+  :global(html.dark) .conceal-btn:hover:not(:disabled):not(.active) {
+    color: #e5e5e7;
+  }
+
+  .conceal-btn.active {
+    background: #eab308;
+    color: #1c1c1e;
+  }
+
+  .conceal-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
   /* View / Split / Edit segmented control */
   .mode-segmented {
     display: inline-flex;
@@ -1338,36 +1439,37 @@
     background: #22D3EE;
   }
 
-  /* Narrow widths: the right cluster is 948px of full-size buttons and never
+  /* Narrow widths: the right cluster is ~1010px of full-size buttons and never
      shrinks, so the left group gives ground in this order. Thresholds are the
      exact points where the remaining left content stops fitting next to the
-     right cluster (24px toolbar padding + 948px right group).
-       1294px  heading needs >=60px to be readable, below that it is hidden
-       1234px  logo + wordmark + open/paste/url + heading
-       1233px  drop the wordmark          -> 188px left content
-       1160px  drop the open/paste/url group -> 26px left content
-       1010px  tighten right gaps/separators -> right group 868px
-        998px  drop the left group entirely
-     Below ~892px the right cluster alone no longer fits; see the report. */
-  @media (max-width: 1293px) {
+     right cluster (24px toolbar padding + ~1010px right group; the 左/右 pair
+     adds ~62px to the old 948px cluster).
+       1356px  heading needs >=60px to be readable, below that it is hidden
+       1296px  logo + wordmark + open/paste/url + heading
+       1295px  drop the wordmark          -> 188px left content
+       1222px  drop the open/paste/url group -> 26px left content
+       1072px  tighten right gaps/separators -> right group ~930px
+       1060px  drop the left group entirely
+     Below ~954px the right cluster alone no longer fits; see the report. */
+  @media (max-width: 1355px) {
     .current-heading {
       display: none;
     }
   }
 
-  @media (max-width: 1233px) {
+  @media (max-width: 1295px) {
     .toolbar-wordmark {
       display: none;
     }
   }
 
-  @media (max-width: 1159px) {
+  @media (max-width: 1221px) {
     .toolbar-left .btn-group {
       display: none;
     }
   }
 
-  @media (max-width: 1009px) {
+  @media (max-width: 1071px) {
     .toolbar-right {
       gap: 0;
     }
@@ -1379,9 +1481,15 @@
     .mode-segmented {
       margin-right: 0;
     }
+
+    .conceal-group {
+      margin-right: 0;
+    }
   }
 
-  @media (max-width: 997px) {
+  /* The 左/右 pair adds ~62px to the right cluster, so the left group yields
+     ~62px earlier than before. */
+  @media (max-width: 1059px) {
     .toolbar-left {
       display: none;
     }

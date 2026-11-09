@@ -3,7 +3,13 @@ import { translate } from "$lib/i18n";
 import { glossarySettings } from "$lib/stores/glossarySettings";
 import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
-import { normalizeWord, tokenizeWords, type WordToken } from "$lib/utils/glossary";
+import {
+  formatPhonetic,
+  normalizeWord,
+  tokenizeWords,
+  type Phonetic,
+  type WordToken,
+} from "$lib/utils/glossary";
 import { createGlossCache, type GlossCache } from "./cache";
 import { lookupGloss } from "./lookup";
 import {
@@ -69,20 +75,25 @@ function injectStyles(): void {
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
-  padding: 2px 6px;
+  padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid #e5e5ea;
   background: #fff;
   color: #1c1c1e;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  white-space: nowrap;
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: min(320px, calc(100vw - 16px));
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
   pointer-events: none;
+}
+.${BUBBLE_CLASS}-phonetic {
+  margin-bottom: 1px;
+  color: #636366;
+  font-family: "Segoe UI", "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
+  white-space: pre-wrap;
 }
 html.dark .${BUBBLE_CLASS} {
   background: #2c2c2e;
@@ -90,6 +101,7 @@ html.dark .${BUBBLE_CLASS} {
   border-color: #3a3a3c;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
 }
+html.dark .${BUBBLE_CLASS}-phonetic { color: #aeaeb2; }
 `;
   document.head.appendChild(style);
 }
@@ -170,6 +182,32 @@ export function createGlossaryBrowser(
     bubble.textContent = "";
   }
 
+  /** IPA on its own line above the meaning, only when the 音标 option is on. */
+  function renderBubble(gloss: string, phonetic?: Phonetic): void {
+    bubble.textContent = "";
+    if (phonetic) {
+      const settings = get(glossarySettings);
+      if (settings.showPhonetic) {
+        const line = formatPhonetic(
+          phonetic,
+          settings.phoneticUk,
+          settings.phoneticUs,
+          translate("glossary.phoneticUkShort"),
+          translate("glossary.phoneticUsShort"),
+        );
+        if (line) {
+          const el = document.createElement("div");
+          el.className = `${BUBBLE_CLASS}-phonetic`;
+          el.textContent = line;
+          bubble.appendChild(el);
+        }
+      }
+    }
+    const meanings = document.createElement("div");
+    meanings.textContent = gloss;
+    bubble.appendChild(meanings);
+  }
+
   function position(): void {
     if (!anchorRange) return;
     placeBubble(bubble, anchorRange);
@@ -209,29 +247,43 @@ export function createGlossaryBrowser(
     position();
 
     const request = ++requestToken;
+    const wantsPhonetic = get(glossarySettings).showPhonetic;
+
     const cached = cache.get(key);
     if (cached && cached.length > 0) {
-      bubble.textContent = cached.join(" / ");
+      const cachedPhonetic = cache.getPhonetics(key);
+      if (!wantsPhonetic || cachedPhonetic !== undefined) {
+        renderBubble(cached.join(" / "), cachedPhonetic);
+        position();
+        return;
+      }
+      // A cache written before 音标 was enabled has the gloss but no IPA.
+      // Show the gloss immediately and refresh it from the model below.
+      renderBubble(cached.join(" / "), undefined);
       position();
-      return;
     }
 
     await cache.ready;
     if (destroyed || request !== requestToken) return;
     const late = cache.get(key);
+    const latePhonetic = cache.getPhonetics(key);
     if (late && late.length > 0) {
-      bubble.textContent = late.join(" / ");
+      if (!wantsPhonetic || latePhonetic !== undefined) {
+        renderBubble(late.join(" / "), latePhonetic);
+        position();
+        return;
+      }
+      renderBubble(late.join(" / "), undefined);
       position();
-      return;
     }
 
     const result = await lookupGloss(raw);
     if (destroyed || request !== requestToken) return;
     if (result.ok) {
-      bubble.textContent = result.text;
-      cache.set(key, result.items);
-    } else {
-      bubble.textContent = translate("glossary.lookupFailed");
+      renderBubble(result.text, result.phonetic);
+      cache.set(key, result.items, result.phonetic);
+    } else if (!late || late.length === 0) {
+      renderBubble(translate("glossary.lookupFailed"), result.phonetic);
     }
     position();
   }
