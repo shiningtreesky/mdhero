@@ -3,6 +3,7 @@ import { get, writable, type Writable } from "svelte/store";
 import { translate } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import { isDiskCacheablePath } from "$lib/glossary/cache";
+import type { UnitKind } from "$lib/utils/paragraphs";
 
 /**
  * Per-document paragraph translations for the reading ("段") mode.
@@ -107,6 +108,100 @@ export function parasItemsToDocument(items: Iterable<ParaItem>): string {
   return JSON.stringify({ version: 1, items: sorted });
 }
 
+/** The unit list a saved document is reconciled against. */
+export interface ParasUnitRef {
+  index: number;
+  hash: string;
+}
+
+export interface ParasRemapResult {
+  items: ParaItem[];
+  /** True when at least one index/hash/text changed and the file should be
+   *  rewritten to keep the next load stable. */
+  changed: boolean;
+  /** Saved entries whose unit no longer exists (dropped). */
+  orphaned: number;
+}
+
+/**
+ * Re-attach saved translations after the unit numbering shifts — adding a
+ * heading moves every later unit, so reading by `index` alone would hand a
+ * paragraph's translation to a different unit.
+ *
+ *  - Units are matched by source hash first (a translation always follows its
+ *    own source text, whichever number it now has; a paragraph can never
+ *    silently become a heading because the hashes differ).
+ *  - When several units share one hash, the one closest to the old index wins,
+ *    so repeated texts (a table cell "Yes", "Yes") keep their order.
+ *  - A leftover entry whose index still exists but whose hash no longer
+ *    matches stays where it is: the UI flags it as "原文已变" and asks for a
+ *    fresh confirmation instead of throwing the work away.
+ *  - Anything else (document got shorter, slot already taken) is an orphan and
+ *    is dropped.
+ */
+export function remapParasItems(
+  items: readonly ParaItem[],
+  units: readonly ParasUnitRef[],
+): ParasRemapResult {
+  const byHash = new Map<string, number[]>();
+  for (const unit of units) {
+    if (!unit.hash) continue;
+    const list = byHash.get(unit.hash);
+    if (list) list.push(unit.index);
+    else byHash.set(unit.hash, [unit.index]);
+  }
+  const unitByIndex = new Map(units.map((unit) => [unit.index, unit]));
+  const claimed = new Set<number>();
+  const assigned = new Map<number, ParaItem>();
+  const leftovers: ParaItem[] = [];
+
+  const before = [...items].sort((a, b) => a.index - b.index);
+
+  for (const item of before) {
+    const candidates = item.hash
+      ? (byHash.get(item.hash) ?? []).filter((index) => !claimed.has(index))
+      : [];
+    if (candidates.length === 0) {
+      leftovers.push(item);
+      continue;
+    }
+    let chosen = candidates[0];
+    if (candidates.includes(item.index)) {
+      chosen = item.index;
+    } else {
+      chosen = candidates.reduce((best, index) =>
+        Math.abs(index - item.index) < Math.abs(best - item.index) ? index : best,
+      );
+    }
+    claimed.add(chosen);
+    assigned.set(chosen, { ...item, index: chosen });
+  }
+
+  for (const item of leftovers) {
+    if (item.index < 0) continue;
+    if (unitByIndex.has(item.index) && !claimed.has(item.index)) {
+      claimed.add(item.index);
+      assigned.set(item.index, item);
+    }
+  }
+
+  const out = [...assigned.values()].sort((a, b) => a.index - b.index);
+  const changed =
+    out.length !== before.length ||
+    out.some((item, i) => {
+      const prev = before[i];
+      return (
+        !prev ||
+        prev.index !== item.index ||
+        prev.hash !== item.hash ||
+        prev.text !== item.text ||
+        prev.status !== item.status
+      );
+    });
+
+  return { items: out, changed, orphaned: before.length - out.length };
+}
+
 function toRecord(items: ParaItem[]): Record<number, ParaItem> {
   const out: Record<number, ParaItem> = {};
   for (const item of items) out[item.index] = item;
@@ -149,6 +244,9 @@ export interface ParasSession {
   setItem(item: ParaItem): void;
   setDraft(index: number, text: string): void;
   clearDraft(index: number): void;
+  /** Re-attach saved entries to the current unit list (hash first, index
+   *  second) and rewrite the cache when the numbering shifted. */
+  reconcile(units: readonly ParasUnitRef[]): void;
 }
 
 export interface ParasSessionOptions {
@@ -165,7 +263,14 @@ export function createParasSession({ filePath, memoryKey }: ParasSessionOptions)
 
   if (!diskPath && !memoryHintShown) {
     memoryHintShown = true;
-    showToast(translate("paras.memoryOnly"));
+    // This runs inside a `$derived` — `getParasSession` is called from
+    // `activeParasSession` in +page.svelte. Writing to a store during a derived
+    // computation throws `state_unsafe_mutation`, and that throw escapes the
+    // store's subscriber flush with entries still queued: every later store
+    // update is then enqueued but never delivered, which froze the whole UI
+    // (labels stale, clicks dead) after the first save of a new document.
+    // Defer the toast out of the derived computation.
+    setTimeout(() => showToast(translate("paras.memoryOnly")), 0);
   }
 
   const state = writable<ParasState>({ items: {}, drafts: {} });
@@ -254,6 +359,23 @@ export function createParasSession({ filePath, memoryKey }: ParasSessionOptions)
       if (!loaded) delete pendingDrafts[index];
       writeDrafts();
     },
+    reconcile(units) {
+      const current = get(state).items;
+      const items = Object.values(current);
+      if (items.length === 0 || units.length === 0) return;
+      const result = remapParasItems(items, units);
+      if (!result.changed) return;
+      state.update((state) => ({ items: toRecord(result.items), drafts: state.drafts }));
+      if (!diskPath) {
+        writeStorage(itemsKey, parasItemsToDocument(result.items));
+        return;
+      }
+      // Rewrite the whole cache so the next load already sees the new indexes.
+      writeChain = writeChain
+        .then(() => invoke("paras_replace", { path: diskPath, items: result.items }))
+        .then(() => undefined)
+        .catch(() => undefined);
+    },
   };
 }
 
@@ -280,6 +402,7 @@ export interface ParasSnapshotEntry {
   index: number;
   text: string;
   hash: string;
+  kind: UnitKind;
 }
 
 export interface ParasDocumentInfo {

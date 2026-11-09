@@ -7,7 +7,7 @@ import { tabStore } from "../stores/tabs";
 import { renderFull } from "../renderer/pipeline";
 import { addRecentFile } from "../stores/recents";
 import { pinnedFolders } from "../stores/pinned";
-import { basename } from "../utils/path";
+import { basename, withDocumentExtension } from "../utils/path";
 import { translate } from "../i18n";
 
 export async function readMarkdownFile(path: string): Promise<string> {
@@ -94,7 +94,11 @@ export function newDocument(): void {
     "",
     result.html,
     result.frontmatter,
-    result.wordCount
+    result.wordCount,
+    // The editor — and therefore Save — only exists in the left column. With
+    // the right column focused, defaulting to `focusedPane` put the new tab in
+    // a read-only column where it could neither be typed into nor saved.
+    "left"
   );
   tabStore.setEditing(tabId, true);
 }
@@ -112,13 +116,17 @@ export async function saveAsNewDocument(tabId: string, content: string): Promise
   });
   if (!chosen) return null;
 
-  const fileName = basename(chosen);
-  await saveFile(chosen, content);
-  tabStore.rebindPath(tabId, chosen, fileName);
-  watchFile(chosen);
-  addRecentFile(chosen, fileName);
+  // Normalise before writing: a name typed without an extension would be
+  // rejected by the backend's text-file guard after the dialog closed, and the
+  // tab would stay untitled with no visible reason.
+  const path = withDocumentExtension(chosen);
+  const fileName = basename(path);
+  await saveFile(path, content);
+  tabStore.rebindPath(tabId, path, fileName);
+  watchFile(path);
+  addRecentFile(path, fileName);
   getCurrentWindow().setTitle(`${fileName} — MDHero`).catch(() => {});
-  return chosen;
+  return path;
 }
 
 export async function openFileDialog(): Promise<void> {

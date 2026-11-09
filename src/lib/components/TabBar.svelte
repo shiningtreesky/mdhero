@@ -19,7 +19,7 @@
   import { copyFileName, copyPath } from "$lib/utils/clipboard";
   import { createDelayedCall } from "$lib/utils/delayed-call";
   import { stripVerbatimPrefix, tabFolderLabel, tabsNeedingFolder } from "$lib/utils/path";
-  import { resolveDrop } from "$lib/utils/tab-drag";
+  import { clipRowsToSeam, resolveDrop } from "$lib/utils/tab-drag";
   import PanelResizer from "./PanelResizer.svelte";
   import { translate, t } from "$lib/i18n";
 
@@ -105,8 +105,12 @@
         row.dataset.orientation === "vertical" ? "vertical" : "horizontal";
       // The side panel is taller than its tab list; the empty part under the
       // last tab is still a drop area, so measure the panel for that layout.
+      // A top row must measure the whole strip instead: `.tabbar-files` only
+      // spans its tabs and collapses to a ~16px by 0px sliver in an empty
+      // column, which used to make that column impossible to drop into.
       const panel = row.closest<HTMLElement>(".tabbar.side");
-      const rect = (panel ?? row).getBoundingClientRect();
+      const bar = row.closest<HTMLElement>(".tabbar") ?? row;
+      const rect = (panel ?? bar).getBoundingClientRect();
       const childEnds = Array.from(row.querySelectorAll<HTMLElement>("[data-tab-id]"))
         .filter((child) => child.dataset.tabId !== tabId)
         .map((child) => {
@@ -123,7 +127,11 @@
         childEnds,
       };
     });
-    return resolveDrop(rows, x, y);
+    // The left strip's box still spans the window; cut it where the pinned
+    // right column starts so it cannot steal drops aimed at the right row.
+    const rightBar = document.querySelector<HTMLElement>(".tabbar.pane-right");
+    const seam = rightBar ? rightBar.getBoundingClientRect().left : null;
+    return resolveDrop(clipRowsToSeam(rows, seam), x, y);
   }
 
   function gapRect(target: TabDragTarget): DragRect | null {

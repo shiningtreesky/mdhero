@@ -35,6 +35,12 @@
 
   function restoreDefaults() {
     form = { ...DEFAULT_GLOSSARY_SETTINGS };
+    // The 朗读 checkbox is immediate, so restoring defaults must reset it now
+    // rather than waiting for Save.
+    glossarySettings.update((current) => ({
+      ...current,
+      speakOnClick: DEFAULT_GLOSSARY_SETTINGS.speakOnClick,
+    }));
     error = "";
   }
 
@@ -49,8 +55,20 @@
       error = translate("translation.modelRequired");
       return;
     }
-    glossarySettings.set({ baseUrl, apiKey: form.apiKey, model });
+    // The 朗读 checkbox is applied immediately, independently of Save/Cancel,
+    // so preserve its current value when the endpoint fields are saved.
+    glossarySettings.set({
+      baseUrl,
+      apiKey: form.apiKey,
+      model,
+      speakOnClick: $glossarySettings.speakOnClick,
+    });
     visible = false;
+  }
+
+  function handleSpeakOnClick(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    glossarySettings.update((current) => ({ ...current, speakOnClick: checked }));
   }
 </script>
 
@@ -110,6 +128,23 @@
             placeholder="hy-mt2-1.8b"
           />
         </label>
+
+        <!-- Speech is separate from the gloss endpoint above: it uses the
+             read-aloud backend, not Base URL / API Key / model. The checkbox
+             takes effect immediately, so it is not part of the form state. -->
+        <div class="speech-section">
+          <label class="checkbox-field">
+            <input
+              type="checkbox"
+              checked={$glossarySettings.speakOnClick}
+              onchange={handleSpeakOnClick}
+            />
+            <span class="checkbox-copy">
+              <span class="field-label">{$t('glossary.speakOnClick')}</span>
+              <span class="field-hint">{$t('glossary.speakOnClickHint')}</span>
+            </span>
+          </label>
+        </div>
 
         {#if error}
           <p class="form-error" role="alert">{error}</p>
@@ -250,6 +285,39 @@
     font-size: 11px;
     line-height: 1.4;
     color: #8e8e93;
+  }
+
+  .speech-section {
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px solid #f2f2f7;
+  }
+
+  :global(html.dark) .speech-section {
+    border-top-color: #3a3a3c;
+  }
+
+  .checkbox-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .checkbox-field input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin: 2px 0 0;
+    accent-color: #0891b2;
+    cursor: pointer;
+  }
+
+  .checkbox-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .text-input {

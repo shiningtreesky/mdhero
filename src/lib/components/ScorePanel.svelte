@@ -1,7 +1,16 @@
 <script lang="ts">
   import { X } from "@lucide/svelte";
   import { t } from "$lib/i18n";
+  import type { MessageKey } from "$lib/i18n";
   import type { ScoreRow } from "$lib/utils/parasScore";
+
+  const TYPE_LABEL: Record<ScoreRow["type"], MessageKey> = {
+    heading: "score.type.heading",
+    paragraph: "score.type.paragraph",
+    list: "score.type.list",
+    quote: "score.type.quote",
+    cell: "score.type.cell",
+  };
 
   let {
     visible = $bindable(false),
@@ -81,7 +90,10 @@
         {#each rows as row (row.index)}
           <section class="block">
             <div class="block-head">
-              <span class="block-index">{$t('score.paragraph', { n: row.index + 1 })}</span>
+              <div class="block-title">
+                <span class="block-index">{$t('score.paragraph', { n: row.index + 1 })}</span>
+                <span class="tag tag-type">{$t(TYPE_LABEL[row.type])}</span>
+              </div>
               {#if row.status === "skipped"}
                 <span class="tag tag-skipped">{$t('score.skipped')}</span>
               {:else if row.answered}
@@ -328,6 +340,25 @@
     font-weight: 600;
     color: #636366;
     font-variant-numeric: tabular-nums;
+  }
+
+  .block-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .tag-type {
+    background: transparent;
+    border: 1px solid #e5e5ea;
+    color: #8e8e93;
+    padding: 1px 6px;
+  }
+
+  :global(html.dark) .tag-type {
+    border-color: #3a3a3c;
+    color: #aeaeb2;
   }
 
   :global(html.dark) .block-index {

@@ -136,14 +136,39 @@ html.dark .${CARD_CLASS} {
 .${CARD_CLASS}-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   font-size: 11px;
   font-weight: 600;
   color: #636366;
 }
 .${CARD_CLASS}-hint {
+  margin-right: auto;
   font-weight: 400;
   color: #8e8e93;
+}
+.${CARD_CLASS}-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -3px -4px -3px 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #8e8e93;
+  cursor: pointer;
+  line-height: 0;
+}
+.${CARD_CLASS}-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1c1c1e;
+}
+html.dark .${CARD_CLASS}-close { color: #8e8e93; }
+html.dark .${CARD_CLASS}-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #e5e5e7;
 }
 html.dark .${CARD_CLASS}-head { color: #aeaeb2; }
 .${CARD_CLASS}-source {
@@ -234,6 +259,10 @@ function bubbleIcon(): string {
   return '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="M2 2.5h8a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5.4L3 10.5V8.5H2a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"/></svg>';
 }
 
+function closeIcon(): string {
+  return '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
+}
+
 export function createParasBrowser(
   container: HTMLElement,
   article: HTMLElement,
@@ -280,7 +309,7 @@ export function createParasBrowser(
   function clearHover(): void {
     if (!hovered) return;
     if (useHighlight) highlightRegistry?.delete(HOVER_NAME);
-    else hovered.classList.remove(HOVER_CLASS);
+    hovered.classList.remove(HOVER_CLASS);
     hovered = null;
   }
 
@@ -288,7 +317,10 @@ export function createParasBrowser(
     if (hovered === entry.element) return;
     clearHover();
     hovered = entry.element;
-    if (useHighlight && highlightRegistry && HighlightCtor) {
+    // A heading is one line and a cell is one box: the reader expects the whole
+    // line/cell painted, while the Highlight API only covers the glyphs.
+    const wholeBox = entry.kind === "heading" || entry.kind === "cell";
+    if (!wholeBox && useHighlight && highlightRegistry && HighlightCtor) {
       const range = document.createRange();
       range.selectNodeContents(entry.element);
       highlightRegistry.set(HOVER_NAME, new HighlightCtor(range));
@@ -347,6 +379,16 @@ export function createParasBrowser(
     } else {
       left = rect.right - elementRect.left + 2;
       top = rect.top - elementRect.top + (rect.height - size) / 2;
+    }
+    if (entry.kind === "cell") {
+      // Cells are narrow: when the end of the text is too close to the column
+      // edge, pin the bubble inside the top-right corner instead of letting the
+      // clamp push it over the neighbouring column.
+      const maxLeft = Math.max(0, elementRect.width - size - 2);
+      if (left > maxLeft) {
+        left = maxLeft;
+        top = 2;
+      }
     }
     left = Math.max(0, Math.min(left, elementRect.width - size));
     top = Math.max(0, Math.min(top, elementRect.height - size));
@@ -427,6 +469,14 @@ export function createParasBrowser(
     head.className = `${CARD_CLASS}-head`;
     head.appendChild(label(translate("paras.cardTitle", { n: entry.index + 1 }), `${CARD_CLASS}-title`));
     head.appendChild(label(translate("paras.original"), `${CARD_CLASS}-hint`));
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = `${CARD_CLASS}-close`;
+    close.innerHTML = closeIcon();
+    close.title = translate("common.close");
+    close.setAttribute("aria-label", close.title);
+    close.addEventListener("click", () => closeCard());
+    head.appendChild(close);
     element.appendChild(head);
 
     const source = document.createElement("p");
@@ -569,6 +619,7 @@ export function createParasBrowser(
         index: entry.index,
         text: entry.text,
         hash: entry.hash,
+        kind: entry.kind,
       })),
     });
   }
@@ -589,6 +640,9 @@ export function createParasBrowser(
     entries = hashed;
     entryMap.clear();
     for (const entry of entries) entryMap.set(entry.element, entry);
+    // Units may have shifted (a new heading renumbers everything after it):
+    // re-attach saved translations by hash before drawing bubbles.
+    session.reconcile(entries.map((entry) => ({ index: entry.index, hash: entry.hash })));
     publish();
     renderBubbles();
   }

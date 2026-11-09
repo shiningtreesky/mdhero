@@ -1,16 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptsParagraph,
+  hasTranslatableText,
   normalizeParagraphText,
   paragraphHash,
+  unitKind,
+  UNIT_SELECTOR,
 } from "../../src/lib/utils/paragraphs";
 import {
   parasItemsToDocument,
   parseParasDocument,
   parseParasDrafts,
+  remapParasItems,
   type ParaItem,
 } from "../../src/lib/paras/store";
 import { buildScoreMessages, parseScoreResponse } from "../../src/lib/utils/parasScore";
+
+const element = (tagName: string) => ({ tagName: tagName.toUpperCase() }) as unknown as HTMLElement;
+
+const saved = (index: number, hash: string, text: string): ParaItem => ({
+  index,
+  hash,
+  text,
+  status: "translated",
+  updatedAt: 1,
+});
 
 describe("paragraph model", () => {
   it("collapses whitespace and trims the source text", () => {
@@ -42,6 +56,29 @@ describe("paragraph model", () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
     expect(a).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("counts headings and table cells as units", () => {
+    expect(UNIT_SELECTOR).toContain("h1");
+    expect(UNIT_SELECTOR).toContain("h6");
+    expect(UNIT_SELECTOR).toContain("th");
+    expect(UNIT_SELECTOR).toContain("td");
+    expect(UNIT_SELECTOR).not.toContain("pre");
+    expect(unitKind(element("h2"))).toBe("heading");
+    expect(unitKind(element("td"))).toBe("cell");
+    expect(unitKind(element("th"))).toBe("cell");
+    expect(unitKind(element("p"))).toBe("paragraph");
+    expect(unitKind(element("li"))).toBe("list");
+    expect(unitKind(element("blockquote"))).toBe("quote");
+  });
+
+  it("skips table cells that only hold numbers or symbols", () => {
+    expect(hasTranslatableText("2024")).toBe(false);
+    expect(hasTranslatableText("98.6%")).toBe(false);
+    expect(hasTranslatableText("—")).toBe(false);
+    expect(hasTranslatableText("  ")).toBe(false);
+    expect(hasTranslatableText("Model")).toBe(true);
+    expect(hasTranslatableText("模型")).toBe(true);
   });
 });
 
@@ -101,11 +138,90 @@ describe("paras.json parsing", () => {
   });
 });
 
+describe("saved entries re-attach after unit numbering shifts", () => {
+  it("follows the hash when a new heading pushes every unit down", () => {
+    // Old document: unit 0..2 are paragraphs.
+    const items = [saved(0, "pa", "甲"), saved(1, "pb", "乙"), saved(2, "pc", "丙")];
+    // New document: a heading at the top shifts all three paragraphs to 1..3.
+    const units = [
+      { index: 0, hash: "hh" },
+      { index: 1, hash: "pa" },
+      { index: 2, hash: "pb" },
+      { index: 3, hash: "pc" },
+    ];
+    const result = remapParasItems(items, units);
+    expect(result.changed).toBe(true);
+    expect(result.orphaned).toBe(0);
+    expect(result.items.map((item) => [item.index, item.text])).toEqual([
+      [1, "甲"],
+      [2, "乙"],
+      [3, "丙"],
+    ]);
+  });
+
+  it("does not hand a paragraph translation to a heading that took its index", () => {
+    // The paragraph that used to be unit 0 is now unit 1 (heading inserted).
+    const items = [saved(0, "pa", "甲")];
+    const units = [
+      { index: 0, hash: "hh" },
+      { index: 1, hash: "pa" },
+    ];
+    const result = remapParasItems(items, units);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].index).toBe(1);
+    expect(result.items[0].hash).toBe("pa");
+  });
+
+  it("keeps the saved text at its index but flags a changed source", () => {
+    const items = [saved(1, "old", "旧译文")];
+    const units = [
+      { index: 0, hash: "a" },
+      { index: 1, hash: "new" },
+    ];
+    const result = remapParasItems(items, units);
+    expect(result.changed).toBe(false);
+    expect(result.items).toEqual([saved(1, "old", "旧译文")]);
+  });
+
+  it("drops orphans when the unit no longer exists", () => {
+    const items = [saved(0, "a", "甲"), saved(5, "gone", "乙")];
+    const units = [{ index: 0, hash: "a" }];
+    const result = remapParasItems(items, units);
+    expect(result.items).toHaveLength(1);
+    expect(result.changed).toBe(true);
+    expect(result.orphaned).toBe(1);
+  });
+
+  it("keeps repeated texts in their nearest slot", () => {
+    // Two "Yes" cells: the saved entry at index 4 belongs to the cell at 4,
+    // not to the identical cell at 1.
+    const items = [saved(4, "same", "是")];
+    const units = [
+      { index: 1, hash: "same" },
+      { index: 4, hash: "same" },
+    ];
+    const result = remapParasItems(items, units);
+    expect(result.items[0].index).toBe(4);
+    expect(result.changed).toBe(false);
+  });
+
+  it("leaves an already aligned document untouched", () => {
+    const items = [saved(0, "a", "甲"), saved(1, "b", "乙")];
+    const units = [
+      { index: 0, hash: "a" },
+      { index: 1, hash: "b" },
+    ];
+    const result = remapParasItems(items, units);
+    expect(result.changed).toBe(false);
+    expect(result.items).toHaveLength(2);
+  });
+});
+
 describe("grading payload", () => {
   const inputs = [
-    { index: 0, english: "First paragraph.", chinese: "第一段译文。", status: "translated" as const },
-    { index: 1, english: "Second paragraph.", chinese: "", status: "skipped" as const },
-    { index: 2, english: "Third paragraph.", chinese: "第三段译文。", status: "translated" as const },
+    { index: 0, english: "First paragraph.", chinese: "第一段译文。", status: "translated" as const, type: "paragraph" as const },
+    { index: 1, english: "Second paragraph.", chinese: "", status: "skipped" as const, type: "cell" as const },
+    { index: 2, english: "Third paragraph.", chinese: "第三段译文。", status: "translated" as const, type: "heading" as const },
   ];
 
   it("sends every paragraph in one request and marks skipped ones explicitly", () => {
@@ -115,10 +231,10 @@ describe("grading payload", () => {
     expect(messages[0].content).toContain("skipped");
     const payload = JSON.parse(messages[1].content) as Array<Record<string, unknown>>;
     expect(payload).toHaveLength(3);
-    expect(payload[0]).toMatchObject({ index: 0, status: "translated", chinese: "第一段译文。" });
-    expect(payload[1]).toMatchObject({ index: 1, status: "skipped" });
+    expect(payload[0]).toMatchObject({ index: 0, status: "translated", chinese: "第一段译文。", type: "paragraph" });
+    expect(payload[1]).toMatchObject({ index: 1, status: "skipped", type: "cell" });
     expect(payload[1].note).toContain("does not take part");
-    expect(payload[2]).toMatchObject({ index: 2, status: "translated" });
+    expect(payload[2]).toMatchObject({ index: 2, status: "translated", type: "heading" });
   });
 });
 

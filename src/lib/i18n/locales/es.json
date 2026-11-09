@@ -70,6 +70,11 @@
     "glossOff": "Glosas de palabras: desactivadas (clic para activar)",
     "glossDisabledMode": "Las glosas necesitan la vista de lectura a dos columnas (sin código fuente)",
     "glossDisabledLang": "Las glosas solo están disponibles para documentos en inglés",
+    "sentence": "句",
+    "sentenceOn": "Modo frase: activado (clic para desactivar)",
+    "sentenceOff": "Modo frase: desactivado (clic para activar)",
+    "sentenceDisabledMode": "El modo frase necesita la vista de lectura a dos columnas (sin código fuente)",
+    "sentenceDisabledLang": "El modo frase solo está disponible para documentos en inglés",
     "paras": "段",
     "parasOn": "Modo párrafo: activado (clic para desactivar)",
     "parasOff": "Modo párrafo: desactivado (clic para activar)",
@@ -138,7 +143,7 @@
   },
   "glossary": {
     "title": "Ajustes del servicio de glosas",
-    "description": "Punto de conexión usado para consultar palabras en el modo lectura. Es independiente de los ajustes de traducción.",
+    "description": "Punto de conexión usado por los modos de lectura 词 y 句 para glosas de palabras y traducción de frases. Es independiente de los ajustes de traducción.",
     "baseUrl": "URL base",
     "baseUrlHint": "Ejemplo: http://192.168.1.13:1234. Se añade /v1/chat/completions automáticamente.",
     "apiKey": "Clave API",
@@ -146,7 +151,11 @@
     "model": "ID del modelo",
     "modelHint": "El nombre del modelo expuesto por el punto de conexión.",
     "lookupFailed": "No se pudo obtener la definición",
-    "memoryOnly": "Esta pestaña no tiene archivo en disco; las glosas solo se guardan durante esta sesión."
+    "memoryOnly": "Esta pestaña no tiene archivo en disco; las glosas solo se guardan durante esta sesión.",
+    "sentenceFailed": "Error al obtener la traducción",
+    "sentenceMemoryOnly": "Esta pestaña no tiene archivo en disco; las traducciones de frases solo se guardan durante esta sesión.",
+    "speakOnClick": "Leer en voz alta",
+    "speakOnClickHint": "Se aplica de inmediato. Si está marcado, al hacer clic izquierdo en una palabra o frase se muestra su glosa/traducción y se lee en voz alta."
   },
   "paras": {
     "memoryOnly": "Esta pestaña no tiene archivo en disco; las traducciones de párrafos solo se guardan en el almacenamiento local del navegador.",
@@ -166,6 +175,13 @@
     "submitting": "Puntuando el artículo completo…",
     "empty": "Aún no hay puntuaciones.",
     "paragraph": "Párrafo {n}",
+    "type": {
+      "heading": "Título",
+      "paragraph": "Párrafo",
+      "list": "Elemento de lista",
+      "quote": "Cita",
+      "cell": "Celda"
+    },
     "skipped": "Omitido, no se puntúa",
     "points": "{score} / 100",
     "noScore": "Sin puntuación",

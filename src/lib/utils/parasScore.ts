@@ -13,11 +13,16 @@
 
 export type ScoreParagraphStatus = "translated" | "skipped";
 
+/** Type of the source unit, so the model knows a heading or a table cell is
+ *  short by nature and should not be judged as an incomplete paragraph. */
+export type ScoreUnitType = "heading" | "paragraph" | "list" | "quote" | "cell";
+
 export interface ScoreParagraphInput {
   index: number;
   english: string;
   chinese: string;
   status: ScoreParagraphStatus;
+  type: ScoreUnitType;
 }
 
 export interface ScoreEntry {
@@ -50,10 +55,11 @@ export interface ScoreMessage {
 }
 
 const SYSTEM_PROMPT = [
-  "You are an English writing tutor grading a Chinese reader's paragraph-by-paragraph translations.",
-  "The input is a JSON array of paragraphs from one article. Each item has: index (number), english (the original paragraph), chinese (the reader's translation, empty when skipped), status (\"translated\" or \"skipped\").",
-  "For every item with status \"translated\": compare the Chinese translation with the English original. Score 0-100 for fidelity, completeness and natural Chinese. Write a SHORT comment in Simplified Chinese (at most two sentences, point out the main problem or strength). Also give \"recommended\": a more idiomatic English rendering of the paragraph (natural, faithful English — not a Chinese sentence, not a rewrite of the topic).",
-  "For every item with status \"skipped\": the reader explicitly gave up translating that paragraph and it must NOT be scored or commented. Echo it back as {\"index\": n, \"skipped\": true}.",
+  "You are an English writing tutor grading a Chinese reader's unit-by-unit translations.",
+  "The input is a JSON array of units from one article, in document order. Each item has: index (number), type (\"heading\", \"paragraph\", \"list\", \"quote\" or \"cell\"), english (the original text of the unit), chinese (the reader's translation, empty when skipped), status (\"translated\" or \"skipped\").",
+  "Headings and table cells are short by nature: judge them on their own, do not call them incomplete or ask for more context.",
+  "For every item with status \"translated\": compare the Chinese translation with the English original. Score 0-100 for fidelity, completeness and natural Chinese. Write a SHORT comment in Simplified Chinese (at most two sentences, point out the main problem or strength). Also give \"recommended\": a more idiomatic English rendering of the unit (natural, faithful English — not a Chinese sentence, not a rewrite of the topic).",
+  "For every item with status \"skipped\": the reader explicitly gave up translating that unit and it must NOT be scored or commented. Echo it back as {\"index\": n, \"skipped\": true}.",
   "Answer with JSON only, no prose and no code fences, in exactly this shape:",
   "{\"items\":[{\"index\":0,\"score\":85,\"comment\":\"…\",\"recommended\":\"…\"},{\"index\":1,\"skipped\":true}]}",
 ].join("\n");
@@ -63,12 +69,14 @@ export function buildScoreMessages(inputs: ScoreParagraphInput[]): ScoreMessage[
     item.status === "skipped"
       ? {
           index: item.index,
+          type: item.type,
           english: item.english,
           status: "skipped",
-          note: "The user gave up translating this paragraph; it does not take part in the scoring.",
+          note: "The user gave up translating this unit; it does not take part in the scoring.",
         }
       : {
           index: item.index,
+          type: item.type,
           english: item.english,
           chinese: item.chinese,
           status: "translated",

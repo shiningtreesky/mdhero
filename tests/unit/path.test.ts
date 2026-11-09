@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { basename, shortenHomePath, stripVerbatimPrefix } from "../../src/lib/utils/path";
+import {
+  basename,
+  shortenHomePath,
+  stripVerbatimPrefix,
+  withDocumentExtension,
+} from "../../src/lib/utils/path";
 
 // Windows paths are written with escaped backslashes throughout: "C:\\Users" is
 // the four-character path C:\Users.
@@ -38,6 +43,23 @@ describe("stripVerbatimPrefix", () => {
   it("leaves ordinary paths alone", () => {
     expect(stripVerbatimPrefix("/Users/hugo/a.md")).toBe("/Users/hugo/a.md");
     expect(stripVerbatimPrefix("C:\\Users\\hugo\\a.md")).toBe("C:\\Users\\hugo\\a.md");
+  });
+});
+
+describe("withDocumentExtension", () => {
+  it("keeps an accepted extension", () => {
+    expect(withDocumentExtension("C:\\notes\\a.md")).toBe("C:\\notes\\a.md");
+    expect(withDocumentExtension("C:\\notes\\a.TXT")).toBe("C:\\notes\\a.TXT");
+  });
+
+  it("appends .md when the name has no extension", () => {
+    expect(withDocumentExtension("C:\\notes\\未命名")).toBe("C:\\notes\\未命名.md");
+    expect(withDocumentExtension("/tmp/notes")).toBe("/tmp/notes.md");
+  });
+
+  it("appends .md when the extension is not one the backend writes", () => {
+    expect(withDocumentExtension("C:\\notes\\a.foo")).toBe("C:\\notes\\a.foo.md");
+    expect(withDocumentExtension("/tmp/.notes")).toBe("/tmp/.notes.md");
   });
 });
 

@@ -7,18 +7,25 @@ export interface GlossarySettings {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Left-clicking a word in reading mode also speaks it aloud. */
+  speakOnClick: boolean;
 }
 
 export const DEFAULT_GLOSSARY_SETTINGS: GlossarySettings = {
   baseUrl: "http://192.168.1.13:1234",
   apiKey: "1234",
   model: "hy-mt2-1.8b",
+  speakOnClick: false,
 };
 
 const STORAGE_KEY = "mdhero:glossary";
 
 function asString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function load(): GlossarySettings {
@@ -32,6 +39,7 @@ function load(): GlossarySettings {
       baseUrl: asString(parsed.baseUrl, DEFAULT_GLOSSARY_SETTINGS.baseUrl),
       apiKey: asString(parsed.apiKey, DEFAULT_GLOSSARY_SETTINGS.apiKey),
       model: asString(parsed.model, DEFAULT_GLOSSARY_SETTINGS.model),
+      speakOnClick: asBoolean(parsed.speakOnClick, DEFAULT_GLOSSARY_SETTINGS.speakOnClick),
     };
   } catch {
     return { ...DEFAULT_GLOSSARY_SETTINGS };

@@ -2,7 +2,7 @@
   import { document } from "../stores/document";
   import { MOD } from "$lib/utils/platform";
   import { settings } from "../stores/settings";
-  import { themeMode, cycleTheme } from "../stores/theme";
+  import { themeMode, toggleTheme } from "../stores/theme";
   import { tocVisible, tocEntries, toggleToc, activeHeadingId } from "../stores/toc";
   import { openFileDialog } from "../tauri/files";
   import { copyAsRichText, copyAsMarkdown } from "../utils/clipboard";
@@ -22,6 +22,7 @@
     onRawToggle = () => {},
     isEditing = false,
     dirty = false,
+    canSave = false,
     canEdit = false,
     editMode = "view",
     dual = false,
@@ -43,7 +44,12 @@
     glossTitle = "",
     onToggleGloss = () => {},
     onOpenGlossSettings = () => {},
-    /** Paragraph reading ("段") mode: mutually exclusive with 词. */
+    /** Sentence reading ("句") mode: same interactions as 词, one sentence at a time. */
+    canSentence = false,
+    sentenceActive = false,
+    sentenceTitle = "",
+    onToggleSentence = () => {},
+    /** Paragraph reading ("段") mode: mutually exclusive with 句 and 词. */
     canParas = false,
     parasActive = false,
     parasTitle = "",
@@ -64,6 +70,8 @@
     onRawToggle?: () => void;
     isEditing?: boolean;
     dirty?: boolean;
+    /** Dirty, or a brand-new document whose first save is a Save As. */
+    canSave?: boolean;
     canEdit?: boolean;
     editMode?: "view" | "split" | "edit";
     dual?: boolean;
@@ -90,6 +98,10 @@
     onToggleGloss?: () => void;
     /** Long-press / right-click on the 词 button opens its own endpoint panel. */
     onOpenGlossSettings?: () => void;
+    canSentence?: boolean;
+    sentenceActive?: boolean;
+    sentenceTitle?: string;
+    onToggleSentence?: () => void;
     canParas?: boolean;
     parasActive?: boolean;
     parasTitle?: string;
@@ -164,7 +176,7 @@
 
   function handleThemeToggle() {
     closeAll();
-    themeMode.update((m) => cycleTheme(m));
+    toggleTheme();
   }
 
   // Long-press (or right-click) on 词 opens its own endpoint panel instead of
@@ -198,6 +210,39 @@
     event.preventDefault();
     cancelGlossPress();
     glossLongPressed = false;
+    onOpenGlossSettings();
+  }
+
+  // The 句 button uses the same gesture as 词: a short press toggles the mode,
+  // a long press / right-click opens the shared endpoint panel.
+  let sentencePressTimer: ReturnType<typeof setTimeout> | undefined;
+  let sentenceLongPressed = false;
+
+  function startSentencePress() {
+    clearTimeout(sentencePressTimer);
+    sentencePressTimer = setTimeout(() => {
+      sentenceLongPressed = true;
+      onOpenGlossSettings();
+    }, 600);
+  }
+
+  function cancelSentencePress() {
+    clearTimeout(sentencePressTimer);
+  }
+
+  function handleSentenceClick() {
+    if (sentenceLongPressed) {
+      sentenceLongPressed = false;
+      return;
+    }
+    closeAll();
+    onToggleSentence();
+  }
+
+  function handleSentenceContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    cancelSentencePress();
+    sentenceLongPressed = false;
     onOpenGlossSettings();
   }
 
@@ -371,6 +416,23 @@
       aria-pressed={parasActive}
       onclick={() => { closeAll(); onToggleParas(); }}
     >{$t('toolbar.paras')}{#if parasActive && parasTotal > 0}<span class="paras-progress">{parasTranslated}/{parasTotal}</span>{/if}</button>
+
+    <!-- Sentence ("句") mode: same as 词, but the unit is a whole sentence.
+         Long-press / right-click opens the shared gloss endpoint settings. -->
+    <button
+      class="btn gloss-btn"
+      class:active={sentenceActive}
+      disabled={!canSentence}
+      title={sentenceTitle}
+      aria-label={$t('toolbar.sentence')}
+      aria-pressed={sentenceActive}
+      onclick={handleSentenceClick}
+      onpointerdown={startSentencePress}
+      onpointerup={cancelSentencePress}
+      onpointerleave={cancelSentencePress}
+      onpointercancel={cancelSentencePress}
+      oncontextmenu={handleSentenceContextMenu}
+    >{$t('toolbar.sentence')}</button>
 
     <!-- Reading ("词") mode: toggles word glosses in the dual reading pane.
          Long-press / right-click opens this mode's own endpoint settings. -->
@@ -574,8 +636,8 @@
       onclick={onSave}
       class="btn btn-icon save-btn"
       class:dirty
-      disabled={!dirty}
-      title={dirty ? $t('toolbar.saveDirty', { mod: MOD }) : $t('toolbar.saveClean')}
+      disabled={!canSave}
+      title={canSave ? $t('toolbar.saveDirty', { mod: MOD }) : $t('toolbar.saveClean')}
     >
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 3h8l2 2v8H3z"/>
@@ -890,7 +952,7 @@
     padding: 5px 8px;
   }
 
-  /* Reading ("词") toggle: a text button, idle-neutral and amber when on. */
+  /* Reading mode toggles (段/句/词): text buttons, idle-neutral and amber when on. */
   .gloss-btn {
     padding: 4px 9px;
     border-radius: 6px;

@@ -70,6 +70,11 @@
     "glossOff": "精读模式：已关闭（点击开启）",
     "glossDisabledMode": "精读模式仅在双屏阅读视图下可用（不显示源码）",
     "glossDisabledLang": "精读模式仅对英文文档可用",
+    "sentence": "句",
+    "sentenceOn": "句子模式：已开启（点击关闭）",
+    "sentenceOff": "句子模式：已关闭（点击开启）",
+    "sentenceDisabledMode": "句子模式仅在双屏阅读视图下可用（不显示源码）",
+    "sentenceDisabledLang": "句子模式仅对英文文档可用",
     "paras": "段",
     "parasOn": "段落模式：已开启（点击关闭）",
     "parasOff": "段落模式：已关闭（点击开启）",
@@ -138,7 +143,7 @@
   },
   "glossary": {
     "title": "释义服务设置",
-    "description": "精读模式查询单词释义所用的接口，与翻译设置相互独立。",
+    "description": "精读模式（词/句）查询单词释义、翻译句子所用的接口，与翻译设置相互独立。",
     "baseUrl": "Base URL",
     "baseUrlHint": "例如 http://192.168.1.13:1234，会自动补上 /v1/chat/completions。",
     "apiKey": "API Key",
@@ -146,7 +151,11 @@
     "model": "模型 ID",
     "modelHint": "接口中暴露的模型名称。",
     "lookupFailed": "释义获取失败",
-    "memoryOnly": "当前标签页没有磁盘文件，释义只会缓存在本次会话中。"
+    "memoryOnly": "当前标签页没有磁盘文件，释义只会缓存在本次会话中。",
+    "sentenceFailed": "翻译获取失败",
+    "sentenceMemoryOnly": "当前标签页没有磁盘文件，句子翻译只会缓存在本次会话中。",
+    "speakOnClick": "朗读",
+    "speakOnClickHint": "勾选后立即生效：左键点击单词或句子时，会同时显示释义/翻译并朗读。"
   },
   "paras": {
     "memoryOnly": "此标签页没有磁盘路径，段落译文只保存在本机浏览器存储中。",
@@ -166,6 +175,13 @@
     "submitting": "正在提交整篇文章评分…",
     "empty": "暂无评分结果。",
     "paragraph": "第 {n} 段",
+    "type": {
+      "heading": "标题",
+      "paragraph": "段落",
+      "list": "列表",
+      "quote": "引用",
+      "cell": "单元格"
+    },
     "skipped": "已跳过，不参与评分",
     "points": "{score} / 100",
     "noScore": "未评分",

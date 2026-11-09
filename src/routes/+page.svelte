@@ -17,6 +17,7 @@
   } from "$lib/tauri/files";
   import { showToast } from "$lib/stores/toast";
   import { basename } from "$lib/utils/path";
+  import { canSaveTab, needsSaveAs } from "$lib/utils/tab-save";
   import { promptOverwrite, promptUnsaved } from "$lib/utils/unsaved-prompt";
   import { settings, getContentMaxWidth, stepFontSize, DEFAULT_FONT_SIZE } from "$lib/stores/settings";
   import { translationSettings } from "$lib/stores/translation";
@@ -30,7 +31,7 @@
   import { initFileWatcher, stopFileWatcher } from "$lib/tauri/watcher";
   import { restoreSession } from "$lib/tauri/session";
   import { attachSplitSync, type SplitSync } from "$lib/utils/split-sync";
-  import { themeMode, cycleTheme } from "$lib/stores/theme";
+  import { toggleTheme } from "$lib/stores/theme";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
   import { tocVisible, tocEntries } from "$lib/stores/toc";
@@ -81,6 +82,8 @@
   import { toggleSpeech } from "$lib/tts/speech";
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossary } from "$lib/glossary/action";
+  import { sentenceMode } from "$lib/stores/sentenceMode";
+  import { sentence as sentenceAction } from "$lib/glossary/sentence";
   import { isEnglishDocument } from "$lib/utils/glossary";
   import { parasMode } from "$lib/stores/parasMode";
   import { paras as parasAction } from "$lib/paras/action";
@@ -241,11 +244,17 @@
   let leftTab = $derived<Tab | null>($tabs.find((t) => t.id === $activeIds.left) ?? null);
   let rightTab = $derived<Tab | null>($tabs.find((t) => t.id === $activeIds.right) ?? null);
   let focusedLeft = $derived($focusedPane === "left");
+  // The editor always belongs to the left column (see the Editor blocks below),
+  // but `activeTab` follows whichever column has focus. With the right column
+  // focused, acting on `activeTab` hit a read-only document while the left one
+  // was being edited — so Save and the mode buttons did nothing visible. Save
+  // and view switches therefore target the tab actually open in the editor.
+  let editorTab = $derived<Tab | null>(leftTab?.isEditing ? leftTab : activeTab);
   let rightOpen = $derived($rightPaneOpen);
   let canEditActive = $derived(
-    !!activeTab?.filePath
-    && !activeTab.filePath.startsWith("paste://")
-    && !activeTab.filePath.startsWith("url://")
+    !!editorTab?.filePath
+    && !editorTab.filePath.startsWith("paste://")
+    && !editorTab.filePath.startsWith("url://")
   );
   // The left column's own states: the editor, the raw view and split belong to
   // it, and the right column is the read-only one.
@@ -272,6 +281,19 @@
         : $glossaryMode
           ? $t("toolbar.glossOff")
           : $t("toolbar.glossOn"),
+  );
+
+  // Sentence ("句") mode is 词 one granularity up, so it shares the same gates
+  // and is mutually exclusive with both other reading modes.
+  let canSentence = $derived(canGloss);
+  let sentenceTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.sentenceDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.sentenceDisabledLang")
+        : $sentenceMode
+          ? $t("toolbar.sentenceOn")
+          : $t("toolbar.sentenceOff"),
   );
 
   // Paragraph ("段") mode reuses the same gates as 词: the two only make sense
@@ -440,7 +462,7 @@
       // Entering the slideshow supersedes raw/edit/split.
       rawMode = false;
       splitMode = false;
-      if (activeTab?.isEditing) tabStore.setEditing(activeTab.id, false);
+      if (editorTab?.isEditing) tabStore.setEditing(editorTab.id, false);
     }
   }
 
@@ -449,7 +471,10 @@
    * stays anchored at the same place in the document.
    */
   function switchMode(target: ViewMode) {
-    if (!activeTab || target === currentMode) return;
+    // The editor belongs to the left column, so the mode switch must act on
+    // that tab — `activeTab` may be the read-only right column's document.
+    const tab = editorTab;
+    if (!tab || target === currentMode) return;
     if (target === "editor" && !canEditActive) return;
 
     // An explicit mode switch (raw/edit) leaves the slideshow (#44).
@@ -464,25 +489,25 @@
 
     // Apply state changes for the target mode
     if (target === "editor") {
-      tabStore.setEditing(activeTab.id, true);
+      tabStore.setEditing(tab.id, true);
     } else {
       // Exiting edit mode: re-render `editContent` (in-memory) so the viewer
       // shows the latest unsaved changes immediately. The dirty indicator
       // continues to mark that the changes aren't on disk yet.
-      if (activeTab.isEditing && activeTab.dirty) {
-        const baseDir = getBaseDir(activeTab.filePath);
-        const result = renderFull(activeTab.editContent, baseDir);
+      if (tab.isEditing && tab.dirty) {
+        const baseDir = getBaseDir(tab.filePath);
+        const result = renderFull(tab.editContent, baseDir);
         // Fire-and-forget: referenced images were almost always allowed at open;
         // a brand-new external image typed mid-edit self-heals on the next
         // render/reload. Not worth making this sync path async (#31).
-        allowAssets(result.assetPaths, activeTab.filePath);
+        allowAssets(result.assetPaths, tab.filePath);
         // Update the rendered HTML in the docStore so the viewer reflects
         // the unsaved edits. We do NOT call tabStore.updateTabContent or
         // markSaved — the source on disk is unchanged, dirty stays true.
         docStore.set({
-          filePath: activeTab.filePath,
-          fileName: activeTab.fileName,
-          content: activeTab.content,             // disk content (unchanged)
+          filePath: tab.filePath,
+          fileName: tab.fileName,
+          content: tab.content,                   // disk content (unchanged)
           renderedHtml: result.html,              // preview of unsaved edits
           frontmatter: result.frontmatter,
           wordCount: result.wordCount,
@@ -490,7 +515,7 @@
           error: null,
         });
       }
-      if (activeTab.isEditing) tabStore.setEditing(activeTab.id, false);
+      if (tab.isEditing) tabStore.setEditing(tab.id, false);
       rawMode = target === "raw";
       splitMode = false; // leaving editing always leaves split
     }
@@ -505,19 +530,22 @@
     });
   }
 
-  /** Saves the tab. Returns false if nothing was written — not dirty, the
-   *  Save-As dialog was cancelled, the on-disk version was kept, or the write
-   *  failed. Callers that gate a destructive action on a save need that (#160). */
+  /** Saves the tab. Returns false if nothing was written — a clean file with a
+   *  location, a cancelled Save-As dialog, the on-disk version was kept, or the
+   *  write failed. Callers that gate a destructive action on a save need that
+   *  (#160). A new document is saved even when `dirty` is false: its first save
+   *  only chooses a location, so it cannot be skipped (#63). */
   async function handleSave(tab: Tab): Promise<boolean> {
-    if (!tab.dirty) return true;
+    const isNew = needsSaveAs(tab);
+    if (!tab.dirty && !isNew) return true;
     try {
       let targetPath = tab.filePath;
       let targetName = tab.fileName;
       // An unsaved `new://` document has no location yet — prompt for one on
       // this first save, which rebinds the tab to the chosen real path (#63).
-      if (tab.filePath.startsWith("new://")) {
+      if (isNew) {
         const saved = await saveAsNewDocument(tab.id, tab.editContent);
-        if (!saved) return false; // cancelled — keep editing, stays dirty
+        if (!saved) return false; // cancelled — keep editing, Save stays available
         targetPath = saved;
         targetName = basename(saved);
       } else {
@@ -560,24 +588,57 @@
       return true;
     } catch (err) {
       console.error("Save failed:", err);
-      alert(translate("page.saveFailed", { err: String(err) }));
+      // A native alert() blocks the whole WebView on Tauri: when a save failed,
+      // every button stopped responding. The in-app toast reports the reason
+      // without freezing the window.
+      showToast(translate("page.saveFailed", { err: String(err) }), 6000);
       return false;
     }
   }
 
-  // 词 and 段 are mutually exclusive: both decorate the same article, and the
-  // requirement is that turning one on clears the other's highlights, bubbles
-  // and click interception.
+  // One save at a time: a second click while the Save-As dialog was still open
+  // used to open a second native dialog. The one left underneath keeps the
+  // window modal, so every later click on the app did nothing.
+  let saveInFlight = $state(false);
+
+  async function saveFromToolbar(): Promise<void> {
+    if (saveInFlight || !editorTab || !canSaveTab(editorTab)) return;
+    saveInFlight = true;
+    try {
+      await handleSave(editorTab);
+    } finally {
+      saveInFlight = false;
+    }
+  }
+
+  // 段, 句 and 词 are mutually exclusive: all three decorate the same article,
+  // and turning one on clears the others' highlights, bubbles and click
+  // interception.
   function handleToggleParas(): void {
     const next = !$parasMode;
-    if (next) glossaryMode.set(false);
+    if (next) {
+      glossaryMode.set(false);
+      sentenceMode.set(false);
+    }
     parasMode.set(next);
   }
 
   function handleToggleGloss(): void {
     const next = !$glossaryMode;
-    if (next) parasMode.set(false);
+    if (next) {
+      parasMode.set(false);
+      sentenceMode.set(false);
+    }
     glossaryMode.set(next);
+  }
+
+  function handleToggleSentence(): void {
+    const next = !$sentenceMode;
+    if (next) {
+      parasMode.set(false);
+      glossaryMode.set(false);
+    }
+    sentenceMode.set(next);
   }
 
   function errorText(err: unknown): string {
@@ -616,13 +677,20 @@
       const item = parasState.items[entry.index];
       if (!item) continue;
       if (item.status === "skipped") {
-        inputs.push({ index: entry.index, english: entry.text, chinese: "", status: "skipped" });
+        inputs.push({
+          index: entry.index,
+          english: entry.text,
+          chinese: "",
+          status: "skipped",
+          type: entry.kind,
+        });
       } else if (item.text.trim().length > 0) {
         inputs.push({
           index: entry.index,
           english: entry.text,
           chinese: item.text,
           status: "translated",
+          type: entry.kind,
         });
       }
     }
@@ -857,24 +925,28 @@
   // states; splitMode is the only difference. Routed through switchMode so the
   // source-line position is preserved across the change.
   function setMode(target: "view" | "split" | "dual" | "edit") {
-    if (!activeTab) return;
+    const tab = editorTab;
+    if (!tab) return;
     if (target === "dual") {
-      // Open the second column and hand it the document being read. Split goes
-      // off first: both layouts claim two columns' worth of width.
+      // Dual is a toggle for the second column. Split goes off first: both
+      // layouts claim two columns' worth of width.
       splitMode = false;
       if (rightOpen) {
-        focusedPane.set("right");
+        // Closing hands the right column's tabs back to the left column.
+        tabStore.collapseRightPane();
       } else {
         rightPaneOpen.set(true);
-        if (activeTab) tabStore.moveTabToPane(activeTab.id, "right");
-        else focusedPane.set("right");
+        tabStore.moveTabToPane(tab.id, "right");
       }
       return;
     }
     if (target === "view") {
-      // Leaving dual hands the right column's tabs back to the left column.
+      // View is a mode of the left column, not a way out of the dual layout.
+      // Collapsing the right column here removed the second drop target for
+      // tab drags and swapped the active tab *before* switchMode ran (which
+      // then saw `target === currentMode` and returned), so the button looked
+      // dead. The Dual segment owns opening and closing the second column now.
       splitMode = false;
-      tabStore.collapseRightPane();
       switchMode(rawMode ? "raw" : "viewer");
       return;
     }
@@ -889,13 +961,13 @@
   }
 
   function handleEditToggle() {
-    if (!canEditActive || !activeTab) return;
+    if (!canEditActive || !editorTab) return;
     // Cmd+E toggles full Edit against View (never Split).
-    setMode(activeTab.isEditing ? "view" : "edit");
+    setMode(editorTab.isEditing ? "view" : "edit");
   }
 
   function handleRawToggle() {
-    if (activeTab?.isEditing) return;
+    if (editorTab?.isEditing) return;
     switchMode(rawMode ? "viewer" : "raw");
   }
 
@@ -1014,7 +1086,7 @@
       pasteVisible = true;
     };
     (window as any).__mdhero_toggle_theme = () => {
-      themeMode.update((m) => cycleTheme(m));
+      toggleTheme();
     };
     (window as any).__mdhero_find = () => {
       searchVisible = !searchVisible;
@@ -1076,7 +1148,8 @@
       // If still nothing, give the user explicit feedback — silence is confusing
       // when a menu item is the trigger.
       if (!get(updateAvailable)) {
-        alert(translate("page.upToDate"));
+        // Toast, not alert(): a native dialog blocks the WebView's IPC loop.
+        showToast(translate("page.upToDate"));
       }
     };
     // Router for AI Lookup right-click menu items. lib.rs::setup forwards any
@@ -1384,13 +1457,11 @@
       return;
     }
 
-    // Cmd+S save (works whenever the active tab has unsaved changes,
-    // even from reader mode after toggling out of edit)
+    // Cmd+S saves the same document the button saves: the one open in the
+    // editor, including a brand-new document that still needs a location.
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "s") {
       e.preventDefault();
-      if (activeTab?.dirty) {
-        handleSave(activeTab);
-      }
+      void saveFromToolbar();
       return;
     }
 
@@ -1623,13 +1694,14 @@
       onUrl={() => { pasteDefaultMode = "url"; pasteVisible = true; }}
       {rawMode}
       onRawToggle={handleRawToggle}
-      isEditing={activeTab?.isEditing ?? false}
-      dirty={activeTab?.dirty ?? false}
+      isEditing={editorTab?.isEditing ?? false}
+      dirty={editorTab?.dirty ?? false}
+      canSave={canSaveTab(editorTab) && !saveInFlight}
       canEdit={canEditActive}
       editMode={activeEditMode}
       dual={rightOpen}
       onSetMode={setMode}
-      onSave={() => activeTab && handleSave(activeTab)}
+      onSave={saveFromToolbar}
       onOpenSettings={() => (settingsVisible = true)}
       canTranslate={!!activeTab}
       {translating}
@@ -1643,6 +1715,10 @@
       {glossTitle}
       onToggleGloss={handleToggleGloss}
       onOpenGlossSettings={() => (glossarySettingsVisible = true)}
+      canSentence={canSentence}
+      sentenceActive={canSentence && $sentenceMode}
+      {sentenceTitle}
+      onToggleSentence={handleToggleSentence}
       canParas={canParas}
       parasActive={canParas && $parasMode}
       {parasTitle}
@@ -1797,6 +1873,11 @@
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
         }}
+        use:sentenceAction={{
+          enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
+          tabId: leftTab?.id ?? null,
+          filePath: leftTab?.filePath ?? null,
+        }}
         use:parasAction={{
           enabled: $parasMode && leftIsEnglish && glossLayoutOk,
           tabId: leftTab?.id ?? null,
@@ -1822,6 +1903,11 @@
         data-focused={!focusedLeft || undefined}
         use:glossary={{
           enabled: $glossaryMode && rightIsEnglish && glossLayoutOk,
+          tabId: rightTab?.id ?? null,
+          filePath: rightTab?.filePath ?? null,
+        }}
+        use:sentenceAction={{
+          enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
           tabId: rightTab?.id ?? null,
           filePath: rightTab?.filePath ?? null,
         }}

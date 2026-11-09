@@ -70,6 +70,11 @@
     "glossOff": "Word glosses: off (click to turn on)",
     "glossDisabledMode": "Word glosses need the dual reading view (no source pane)",
     "glossDisabledLang": "Word glosses are only available for English documents",
+    "sentence": "句",
+    "sentenceOn": "Sentence mode: on (click to turn off)",
+    "sentenceOff": "Sentence mode: off (click to turn on)",
+    "sentenceDisabledMode": "Sentence mode needs the dual reading view (no source pane)",
+    "sentenceDisabledLang": "Sentence mode is only available for English documents",
     "paras": "段",
     "parasOn": "Paragraph mode: on (click to turn off)",
     "parasOff": "Paragraph mode: off (click to turn on)",
@@ -138,7 +143,7 @@
   },
   "glossary": {
     "title": "Word Gloss Settings",
-    "description": "Endpoint used for the reading mode's word lookups. It is separate from the translation settings.",
+    "description": "Endpoint used by the 词 and 句 reading modes for word glosses and sentence translations. It is separate from the translation settings.",
     "baseUrl": "Base URL",
     "baseUrlHint": "Example: http://192.168.1.13:1234. /v1/chat/completions is appended automatically.",
     "apiKey": "API Key",
@@ -146,7 +151,11 @@
     "model": "Model ID",
     "modelHint": "The model name exposed by the endpoint.",
     "lookupFailed": "Lookup failed",
-    "memoryOnly": "This tab has no file on disk, so glosses are cached for this session only."
+    "memoryOnly": "This tab has no file on disk, so glosses are cached for this session only.",
+    "sentenceFailed": "Translation failed",
+    "sentenceMemoryOnly": "This tab has no file on disk, so sentence translations are cached for this session only.",
+    "speakOnClick": "Read aloud",
+    "speakOnClickHint": "Takes effect immediately. When checked, left-clicking a word or sentence shows its gloss/translation and reads it aloud."
   },
   "paras": {
     "memoryOnly": "This tab has no file on disk, so paragraph translations are stored in this browser's local storage only.",
@@ -166,6 +175,13 @@
     "submitting": "Scoring the whole article…",
     "empty": "No scores to show yet.",
     "paragraph": "Paragraph {n}",
+    "type": {
+      "heading": "Heading",
+      "paragraph": "Paragraph",
+      "list": "List item",
+      "quote": "Quote",
+      "cell": "Table cell"
+    },
     "skipped": "Skipped, not scored",
     "points": "{score} / 100",
     "noScore": "Not scored",

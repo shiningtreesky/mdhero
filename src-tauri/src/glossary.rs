@@ -1,6 +1,8 @@
-//! Dictionary lookups for the reading ("词") mode, plus its per-document cache.
+//! Dictionary and sentence lookups for the reading ("词"/"句") modes, plus
+//! their per-document caches.
 //!
-//! The cache file sits next to the Markdown source as `<document>.words.json`:
+//! The cache files sit next to the Markdown source as `<document>.words.json`
+//! and `<document>.sentences.json`:
 //! `{"version":1,"glosses":{"word":["释义1","释义2"]}}`. Writes are serialised
 //! by a Mutex and go through a temp file + rename, so two quick lookups cannot
 //! corrupt a half-written file.
@@ -71,28 +73,26 @@ fn upsert_glossary(existing: Option<&str>, word: &str, glosses: &[String]) -> Va
     doc
 }
 
-/// Ask the dictionary model for a word's Chinese meaning. Requests are made in
-/// Rust so a LAN endpoint behind any CORS/CSP rules still works, and the key
-/// never passes through the webview's fetch.
-#[tauri::command]
-pub async fn glossary_lookup(
-    base_url: String,
-    api_key: String,
-    model: String,
-    word: String,
+/// One OpenAI-compatible chat completion. Requests are made in Rust so a LAN
+/// endpoint behind any CORS/CSP rules still works, and the key never passes
+/// through the webview's fetch.
+async fn request_chat(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    user_text: &str,
+    max_tokens: u32,
 ) -> Result<String, String> {
-    let url = crate::commands::chat_completions_url(&base_url)?;
+    let url = crate::commands::chat_completions_url(base_url)?;
     let body = json!({
         "model": model,
         "stream": false,
         "temperature": 0.2,
-        "max_tokens": 32,
+        "max_tokens": max_tokens,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are a dictionary. Reply with only the most common Chinese meaning(s) of the given English word: one meaning, at most two for genuinely polysemous words, separated by \"/\". No explanations, no part of speech, no examples, no English."
-            },
-            { "role": "user", "content": word }
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_text }
         ]
     });
 
@@ -133,6 +133,45 @@ pub async fn glossary_lookup(
         .or_else(|| value["choices"][0]["text"].as_str())
         .ok_or_else(|| "The model returned no content".to_string())?;
     Ok(content.to_string())
+}
+
+/// Ask the dictionary model for a word's Chinese meaning.
+#[tauri::command]
+pub async fn glossary_lookup(
+    base_url: String,
+    api_key: String,
+    model: String,
+    word: String,
+) -> Result<String, String> {
+    request_chat(
+        &base_url,
+        &api_key,
+        &model,
+        "You are a dictionary. Reply with only the most common Chinese meaning(s) of the given English word: one meaning, at most two for genuinely polysemous words, separated by \"/\". No explanations, no part of speech, no examples, no English.",
+        &word,
+        32,
+    )
+    .await
+}
+
+/// Translate one English sentence into Chinese through the same endpoint and
+/// model as `glossary_lookup`.
+#[tauri::command]
+pub async fn glossary_lookup_sentence(
+    base_url: String,
+    api_key: String,
+    model: String,
+    sentence: String,
+) -> Result<String, String> {
+    request_chat(
+        &base_url,
+        &api_key,
+        &model,
+        "You are a translator. Translate the given English sentence into natural, accurate Simplified Chinese. Reply with only the translation: no explanations, no quotes, no source text, and no English.",
+        &sentence,
+        512,
+    )
+    .await
 }
 
 #[cfg(test)]

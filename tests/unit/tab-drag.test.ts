@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveDrop, type TabRowGeometry } from "../../src/lib/utils/tab-drag";
+import { clipRowsToSeam, resolveDrop, type TabRowGeometry } from "../../src/lib/utils/tab-drag";
 
 // Two rows sitting side by side in the same band: the left column's row spans
 // 8..810, the right column's row spans 810..1610, both at y 44..88. The left
@@ -58,6 +58,25 @@ describe("tab drag across columns", () => {
 
   it("an empty column still offers its whole row as a target", () => {
     expect(resolveDrop([LEFT, { ...RIGHT, childEnds: [] }], 1500, 60)?.pane).toBe("right");
+  });
+
+  it("clips the left strip at the seam so an empty left column is a target too", () => {
+    // Measured from the whole strip, the left row spans the window; with no
+    // tabs of its own it must still take drops in the middle of its column.
+    const emptyLeft: TabRowGeometry = { ...LEFT, right: 1610, childEnds: [] };
+    const rows = clipRowsToSeam([emptyLeft, RIGHT], 810);
+    expect(rows[0].right).toBe(810);
+    expect(resolveDrop(rows, 400, 60)).toEqual({ pane: "left", index: 0 });
+    expect(resolveDrop(rows, 900, 60)?.pane).toBe("right");
+  });
+
+  it("keeps the whole row when there is no right column", () => {
+    const rows = clipRowsToSeam([{ ...LEFT, right: 1610, childEnds: [] }], null);
+    expect(resolveDrop(rows, 1500, 60)?.pane).toBe("left");
+  });
+
+  it("does not clip a side-panel row", () => {
+    expect(clipRowsToSeam([SIDE], 810)[0].right).toBe(228);
   });
 });
 

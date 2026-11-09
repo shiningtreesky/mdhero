@@ -23,6 +23,23 @@ export function basename(path: string): string {
   return trimmed.slice(idx + 1) || trimmed;
 }
 
+/** Extensions the backend lets `write_markdown_file` write (commands.rs). */
+const DOCUMENT_EXTENSIONS = ["md", "markdown", "mdown", "mkd", "mdx", "txt", "text"];
+
+/**
+ * The Save dialog's filter does not guarantee an extension on every platform:
+ * a name typed without one ("notes") came back as a path with no extension,
+ * and the backend's text-file guard then refused to write it *after* the
+ * dialog had closed — leaving the tab untitled with nothing but a console
+ * error. Append the default `.md` when the name has no accepted extension.
+ */
+export function withDocumentExtension(path: string): string {
+  const name = basename(path);
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return DOCUMENT_EXTENSIONS.includes(ext) ? path : `${path}.md`;
+}
+
 /**
  * Strip Windows' verbatim path prefix, which `Path::canonicalize` returns and
  * which is correct but unreadable in a title bar: `\\?\C:\x` becomes `C:\x`,

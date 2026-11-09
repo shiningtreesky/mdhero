@@ -1,15 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
- * Per-document gloss cache for the reading mode.
+ * Per-document cache for the reading modes.
  *
  * With a real Markdown file the cache lives next to it:
  *
- *   /docs/技术文档.md  ->  /docs/技术文档.words.json
+ *   /docs/技术文档.md  ->  /docs/技术文档.words.json      (词)
+ *                     ->  /docs/技术文档.sentences.json  (句)
  *
- * Shape: `{"version":1,"glosses":{"word":["释义1","释义2"]}}`. Tabs without a
- * disk path (paste / URL / unsaved) fall back to localStorage under the same
- * shape and are never written to disk.
+ * Shape: `{"version":1,"glosses":{"key":["释义"]}}`. Tabs without a disk path
+ * (paste / URL / unsaved) fall back to localStorage under the same shape and are
+ * never written to disk.
  *
  * Writes go through the Rust `glossary_store` command, which merges one entry
  * under a Mutex and replaces the file atomically, so a write per looked-up
@@ -17,12 +18,15 @@ import { invoke } from "@tauri-apps/api/core";
  */
 
 export const GLOSSARY_FILE_SUFFIX = ".words.json";
+/** Sentence translations live beside the document too, but in their own file so
+ *  long sentence entries never bloat the word cache. */
+export const SENTENCE_FILE_SUFFIX = ".sentences.json";
 
 /** `/docs/技术文档.md` → `/docs/技术文档.words.json`. A path without a Markdown
  *  extension just gets the suffix appended. */
-export function glossaryCachePath(filePath: string): string {
+export function glossaryCachePath(filePath: string, suffix = GLOSSARY_FILE_SUFFIX): string {
   const withoutMarkdown = filePath.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "");
-  return `${withoutMarkdown}${GLOSSARY_FILE_SUFFIX}`;
+  return `${withoutMarkdown}${suffix}`;
 }
 
 export function isDiskCacheablePath(filePath: string | null | undefined): boolean {
@@ -74,10 +78,12 @@ export interface GlossCacheOptions {
   filePath: string | null;
   /** Used for the localStorage key when there is no disk path. */
   memoryKey: string;
+  /** Cache file suffix; defaults to the word cache. */
+  suffix?: string;
 }
 
-export function createGlossCache({ filePath, memoryKey }: GlossCacheOptions): GlossCache {
-  const diskPath = isDiskCacheablePath(filePath) ? glossaryCachePath(filePath!) : null;
+export function createGlossCache({ filePath, memoryKey, suffix }: GlossCacheOptions): GlossCache {
+  const diskPath = isDiskCacheablePath(filePath) ? glossaryCachePath(filePath!, suffix) : null;
   let entries: Record<string, string[]> = {};
   // Words looked up while the file was still loading must survive the merge.
   const pending: Record<string, string[]> = {};

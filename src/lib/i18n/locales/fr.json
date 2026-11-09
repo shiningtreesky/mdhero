@@ -70,6 +70,11 @@
     "glossOff": "Gloses de mots : désactivées (cliquer pour activer)",
     "glossDisabledMode": "Les gloses nécessitent la vue de lecture à deux colonnes (sans code source)",
     "glossDisabledLang": "Les gloses ne sont disponibles que pour les documents en anglais",
+    "sentence": "句",
+    "sentenceOn": "Mode phrase : activé (cliquer pour désactiver)",
+    "sentenceOff": "Mode phrase : désactivé (cliquer pour activer)",
+    "sentenceDisabledMode": "Le mode phrase nécessite la vue de lecture à deux colonnes (sans code source)",
+    "sentenceDisabledLang": "Le mode phrase n'est disponible que pour les documents en anglais",
     "paras": "段",
     "parasOn": "Mode paragraphe : activé (cliquer pour désactiver)",
     "parasOff": "Mode paragraphe : désactivé (cliquer pour activer)",
@@ -138,7 +143,7 @@
   },
   "glossary": {
     "title": "Paramètres du service de gloses",
-    "description": "Point de terminaison utilisé pour les recherches de mots en mode lecture. Indépendant des paramètres de traduction.",
+    "description": "Point de terminaison utilisé par les modes de lecture 词 et 句 pour les gloses de mots et la traduction de phrases. Indépendant des paramètres de traduction.",
     "baseUrl": "URL de base",
     "baseUrlHint": "Exemple : http://192.168.1.13:1234. /v1/chat/completions est ajouté automatiquement.",
     "apiKey": "Clé API",
@@ -146,7 +151,11 @@
     "model": "ID du modèle",
     "modelHint": "Le nom du modèle exposé par le point de terminaison.",
     "lookupFailed": "Échec de la recherche",
-    "memoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les gloses ne sont conservées que pour cette session."
+    "memoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les gloses ne sont conservées que pour cette session.",
+    "sentenceFailed": "Échec de la traduction",
+    "sentenceMemoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les traductions de phrases ne sont conservées que pour cette session.",
+    "speakOnClick": "Lire à voix haute",
+    "speakOnClickHint": "Pris en compte immédiatement. Si cette option est cochée, un clic gauche sur un mot ou une phrase affiche sa glose/traduction et lit le texte à voix haute."
   },
   "paras": {
     "memoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les traductions de paragraphes sont stockées uniquement dans le stockage local du navigateur.",
@@ -166,6 +175,13 @@
     "submitting": "Notation de l'article entier…",
     "empty": "Aucune note pour l'instant.",
     "paragraph": "Paragraphe {n}",
+    "type": {
+      "heading": "Titre",
+      "paragraph": "Paragraphe",
+      "list": "Élément de liste",
+      "quote": "Citation",
+      "cell": "Cellule"
+    },
     "skipped": "Ignoré, non noté",
     "points": "{score} / 100",
     "noScore": "Non noté",

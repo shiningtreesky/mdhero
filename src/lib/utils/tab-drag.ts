@@ -17,6 +17,25 @@ export interface TabRowGeometry {
 }
 
 /**
+ * The left tab strip stretches across the whole window and only reserves the
+ * right column with padding, so its measured box overlaps the right strip.
+ * Clip it at the seam where the pinned right column starts (null when there is
+ * no right column). Every pointer position then belongs to exactly one row,
+ * while a left row with no tabs still covers its whole column.
+ */
+export function clipRowsToSeam(
+  rows: TabRowGeometry[],
+  seam: number | null,
+): TabRowGeometry[] {
+  if (seam === null || !Number.isFinite(seam)) return rows;
+  return rows.map((row) =>
+    row.pane === "left" && row.orientation === "horizontal" && row.right > seam
+      ? { ...row, right: seam }
+      : row,
+  );
+}
+
+/**
  * The row a dragged tab should drop into, and the slot inside that row. A
  * pointer outside every row drops nowhere, so a drag that never enters a row
  * leaves the tab where it was instead of jumping to the first row.

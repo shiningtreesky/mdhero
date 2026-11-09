@@ -1,27 +1,34 @@
-/** Paragraph model for the reading ("段") mode.
+/** Unit model for the reading ("段") mode.
  *
- *  Paragraphs are the prose blocks of the rendered article: ordinary `<p>`,
- *  list items and quotes. Headings, code blocks, tables and media-only blocks
- *  (an image, or a link and nothing else) are not translatable units, so they
- *  never become paragraphs.
+ *  A translatable unit is a prose block of the rendered article: `<p>`, list
+ *  items, quotes, headings (`h1`–`h6`) and table cells (`th`/`td`). Code
+ *  blocks, frontmatter and media-only blocks never become units.
  *
- *  Each paragraph is identified by its ordinal in the document plus a hash of
- *  its source text. The ordinal keeps the mapping stable across a reload, and
- *  the hash tells the UI when the English source changed under a saved
- *  translation.
+ *  Each unit is identified by its ordinal in document order plus a hash of its
+ *  source text. The ordinal keeps the mapping stable across a reload; the hash
+ *  lets the mode re-attach saved translations when the ordinal moves (a new
+ *  heading shifts every later unit) and flags a unit whose source changed.
  */
 
-/** Block elements that can host a paragraph. */
-export const PARAGRAPH_SELECTOR = "p, li, blockquote";
+export type UnitKind = "heading" | "paragraph" | "list" | "quote" | "cell";
 
-/** Elements whose contents are never paragraphs. */
-const EXCLUDED_ANCESTORS = "pre, code, table, script, style, svg, .frontmatter";
+/** Block elements that can host a unit, in document order. */
+export const UNIT_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, th, td";
+
+/** Kept for the existing call sites; both selectors are the same set. */
+export const PARAGRAPH_SELECTOR = UNIT_SELECTOR;
+
+/** Elements whose contents are never units. `table` is allowed now: its cells
+ *  are units, but a paragraph nested inside a cell still wins (see
+ *  `hasNestedParagraph`). */
+const EXCLUDED_ANCESTORS = "pre, code, script, style, svg, .frontmatter";
 
 export interface ParagraphEntry {
   index: number;
   element: HTMLElement;
   text: string;
   hash: string;
+  kind: UnitKind;
 }
 
 /** Whitespace collapses to single spaces so the hash ignores re-wrapping. */
@@ -50,9 +57,9 @@ export async function paragraphHash(text: string): Promise<string> {
   return hash.toString(16).padStart(8, "0").repeat(2);
 }
 
-/** Text of a paragraph as the reader sees it. The mode's own UI (the bubble
- *  icon appended to a paragraph) carries `data-paras-ui` and is stripped first,
- *  so a saved hash never depends on decorations we added ourselves. */
+/** Text of a unit as the reader sees it. The mode's own UI (the bubble icon
+ *  appended to a unit) carries `data-paras-ui` and is stripped first, so a
+ *  saved hash never depends on decorations we added ourselves. */
 export function paragraphText(element: HTMLElement): string {
   if (!element.querySelector("[data-paras-ui]")) {
     return normalizeParagraphText(element.textContent ?? "");
@@ -62,13 +69,30 @@ export function paragraphText(element: HTMLElement): string {
   return normalizeParagraphText(clone.textContent ?? "");
 }
 
+/** A cell holding only numbers, currency/math symbols or punctuation has
+ *  nothing to translate. */
+export function hasTranslatableText(text: string): boolean {
+  return /\p{L}/u.test(text);
+}
+
+export function unitKind(element: HTMLElement): UnitKind {
+  const tag = element.tagName.toLowerCase();
+  if (tag === "th" || tag === "td") return "cell";
+  if (tag === "li") return "list";
+  if (tag === "blockquote") return "quote";
+  if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4" || tag === "h5" || tag === "h6") {
+    return "heading";
+  }
+  return "paragraph";
+}
+
 /** The decisions `collectParagraphs` makes, split out so they can be unit
  *  tested without a DOM. */
 export interface ParagraphShape {
   text: string;
-  /** Inside `pre`, `code`, `table`, frontmatter, … */
+  /** Inside `pre`, `code`, frontmatter, … */
   excluded: boolean;
-  /** A list item that only wraps a `<p>`: the inner block is the paragraph. */
+  /** A list item or cell that only wraps a `<p>`: the inner block is the unit. */
   hasNestedParagraph: boolean;
   /** An image, or a link and nothing else. */
   mediaOnly: boolean;
@@ -103,17 +127,24 @@ function isExcluded(element: HTMLElement, root: HTMLElement): boolean {
   return false;
 }
 
-/** Paragraph blocks in document order, innermost first (a list item that only
- *  wraps a `<p>` contributes its `<p>`, not both). */
+/** Units in document order (headings, paragraphs, list items, quotes and table
+ *  cells share one numbering space). A container that only wraps another unit
+ *  contributes the inner unit, never both. */
 export function collectParagraphs(root: HTMLElement): ParagraphEntry[] {
-  const blocks = Array.from(root.querySelectorAll<HTMLElement>(PARAGRAPH_SELECTOR)).filter(
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>(UNIT_SELECTOR)).filter(
     (element) => {
       const text = paragraphText(element);
+      const kind = unitKind(element);
+      // Table cells with only numbers/symbols are not worth translating.
+      if (kind === "cell" && !hasTranslatableText(text)) return false;
       return acceptsParagraph({
         text,
         excluded: isExcluded(element, root),
-        hasNestedParagraph: element.querySelector(PARAGRAPH_SELECTOR) !== null,
-        mediaOnly: isMediaOnlyParagraph(element),
+        hasNestedParagraph: element.querySelector(UNIT_SELECTOR) !== null,
+        // Headings and cells are prose even when a link wraps their text; a
+        // cell with only numbers or symbols was already dropped above.
+        mediaOnly:
+          kind === "heading" || kind === "cell" ? false : isMediaOnlyParagraph(element),
       });
     },
   );
@@ -123,6 +154,7 @@ export function collectParagraphs(root: HTMLElement): ParagraphEntry[] {
     element,
     text: paragraphText(element),
     hash: "",
+    kind: unitKind(element),
   }));
 }
 

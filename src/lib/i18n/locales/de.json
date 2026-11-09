@@ -70,6 +70,11 @@
     "glossOff": "Wortglossen: aus (klicken zum Einschalten)",
     "glossDisabledMode": "Wortglossen benötigen die Zweispalten-Leseansicht (ohne Quelltext)",
     "glossDisabledLang": "Wortglossen gibt es nur für englische Dokumente",
+    "sentence": "句",
+    "sentenceOn": "Satzmodus: an (klicken zum Ausschalten)",
+    "sentenceOff": "Satzmodus: aus (klicken zum Einschalten)",
+    "sentenceDisabledMode": "Der Satzmodus benötigt die Zweispalten-Leseansicht (ohne Quelltext)",
+    "sentenceDisabledLang": "Der Satzmodus ist nur für englische Dokumente verfügbar",
     "paras": "段",
     "parasOn": "Absatzmodus: an (klicken zum Ausschalten)",
     "parasOff": "Absatzmodus: aus (klicken zum Einschalten)",
@@ -138,7 +143,7 @@
   },
   "glossary": {
     "title": "Einstellungen für Wortglossen",
-    "description": "Endpunkt für die Wortabfragen im Lese-Modus. Unabhängig von den Übersetzungseinstellungen.",
+    "description": "Endpunkt für Wortglossen und Satzübersetzungen der Lesemodi 词 und 句. Unabhängig von den Übersetzungseinstellungen.",
     "baseUrl": "Basis-URL",
     "baseUrlHint": "Beispiel: http://192.168.1.13:1234. /v1/chat/completions wird automatisch ergänzt.",
     "apiKey": "API-Schlüssel",
@@ -146,7 +151,11 @@
     "model": "Modell-ID",
     "modelHint": "Der am Endpunkt verfügbare Modellname.",
     "lookupFailed": "Abfrage fehlgeschlagen",
-    "memoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Glossen werden nur für diese Sitzung gespeichert."
+    "memoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Glossen werden nur für diese Sitzung gespeichert.",
+    "sentenceFailed": "Übersetzung fehlgeschlagen",
+    "sentenceMemoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Satzübersetzungen werden nur für diese Sitzung gespeichert.",
+    "speakOnClick": "Vorlesen",
+    "speakOnClickHint": "Wirkt sofort. Wenn aktiviert, wird beim Linksklick auf ein Wort oder einen Satz die Glosse/Übersetzung angezeigt und der Text vorgelesen."
   },
   "paras": {
     "memoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Absatzübersetzungen werden nur im lokalen Speicher des Browsers abgelegt.",
@@ -166,6 +175,13 @@
     "submitting": "Der ganze Artikel wird bewertet…",
     "empty": "Noch keine Bewertungen.",
     "paragraph": "Absatz {n}",
+    "type": {
+      "heading": "Überschrift",
+      "paragraph": "Absatz",
+      "list": "Listeneintrag",
+      "quote": "Zitat",
+      "cell": "Tabellenzelle"
+    },
     "skipped": "Übersprungen, nicht bewertet",
     "points": "{score} / 100",
     "noScore": "Nicht bewertet",

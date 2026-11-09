@@ -39,6 +39,53 @@ pub fn paras_store(path: String, item: Value) -> Result<(), String> {
     write_atomic(&p, &merged)
 }
 
+/// Replace the whole cache in one atomic write. Used when the unit numbering
+/// shifted and every saved entry has been re-attached to its new index; the
+/// stale indexes must disappear in the same write, which a per-item upsert
+/// cannot do.
+#[tauri::command]
+pub fn paras_replace(path: String, items: Vec<Value>) -> Result<(), String> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "Paragraph cache lock poisoned".to_string())?;
+    let p = check_json_path(&path)?;
+    let doc = build_document(items);
+    write_atomic(&p, &doc)
+}
+
+/// Validate and normalise a list of entries: unknown statuses become
+/// `translated`, entries without an integer index are dropped, and the last
+/// entry for an index wins. Sorted by index like `upsert_item`.
+fn build_document(items: Vec<Value>) -> Value {
+    let mut kept: Vec<Value> = Vec::new();
+    for item in items {
+        let Some(index) = item["index"].as_i64() else {
+            continue;
+        };
+        if index < 0 {
+            continue;
+        }
+        let status = match item["status"].as_str() {
+            Some("skipped") => "skipped",
+            _ => "translated",
+        };
+        let entry = json!({
+            "index": index,
+            "hash": item["hash"].as_str().unwrap_or(""),
+            "text": item["text"].as_str().unwrap_or(""),
+            "status": status,
+            "updatedAt": item["updatedAt"].as_i64().unwrap_or(0),
+        });
+        match kept.iter_mut().find(|value| value["index"].as_i64() == Some(index)) {
+            Some(slot) => *slot = entry,
+            None => kept.push(entry),
+        }
+    }
+    kept.sort_by_key(|value| value["index"].as_i64().unwrap_or(i64::MAX));
+    json!({ "version": 1, "items": kept })
+}
+
+
 /// Merge one `{index, hash, text, status, updatedAt}` entry into the document.
 /// A damaged or missing file starts a fresh one; other paragraphs survive.
 fn upsert_item(existing: Option<&str>, item: &Value) -> Result<Value, String> {
@@ -123,5 +170,30 @@ mod tests {
     fn rejects_unknown_status_and_missing_index() {
         assert!(upsert_item(None, &json!({ "index": 1, "status": "weird" })).is_err());
         assert!(upsert_item(None, &json!({ "status": "translated" })).is_err());
+    }
+
+    #[test]
+    fn replace_sorts_dedupes_and_normalises_entries() {
+        let doc = build_document(vec![
+            item(5, "e", "五", "translated"),
+            item(1, "f", "一", "translated"),
+            json!({ "index": 1, "hash": "g", "text": "新一", "status": "weird", "updatedAt": 2 }),
+            json!({ "status": "translated", "hash": "x" }),
+            json!({ "index": -1, "hash": "y" }),
+        ]);
+        let items = doc["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["index"], 1);
+        assert_eq!(items[0]["text"], "新一");
+        assert_eq!(items[0]["status"], "translated");
+        assert_eq!(items[1]["index"], 5);
+    }
+
+    #[test]
+    fn replace_keeps_skipped_and_empty_list() {
+        let doc = build_document(vec![item(2, "h", "", "skipped")]);
+        assert_eq!(doc["items"][0]["status"], "skipped");
+        let empty = build_document(vec![]);
+        assert!(empty["items"].as_array().unwrap().is_empty());
     }
 }
