@@ -155,7 +155,7 @@
     "sentenceFailed": "Übersetzung fehlgeschlagen",
     "sentenceMemoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Satzübersetzungen werden nur für diese Sitzung gespeichert.",
     "speakOnClick": "Vorlesen",
-    "speakOnClickHint": "Wirkt sofort. Wenn aktiviert, wird beim Linksklick auf ein Wort oder einen Satz die Glosse/Übersetzung angezeigt und der Text vorgelesen."
+    "speakOnClickHint": "Wirkt sofort. Wenn aktiviert, wird beim Linksklick auf ein Wort oder einen Satz die Glosse/Übersetzung angezeigt und der Text vorgelesen; im Absatzmodus wird beim Öffnen einer Absatzkarte das Original automatisch vorgelesen."
   },
   "paras": {
     "memoryOnly": "Dieser Tab hat keine Datei auf der Festplatte; Absatzübersetzungen werden nur im lokalen Speicher des Browsers abgelegt.",
@@ -167,7 +167,9 @@
     "skippedTooltip": "Übersprungen: wird nicht bewertet",
     "changedTooltip": "Der englische Text hat sich geändert — Übersetzung erneut bestätigen",
     "changedWarning": "Der englische Absatz hat sich nach dem Speichern dieser Übersetzung geändert. Bitte prüfen und erneut bestätigen.",
-    "openTooltip": "Diese Übersetzung bearbeiten"
+    "openTooltip": "Diese Übersetzung bearbeiten",
+    "readAloud": "Vorlesen",
+    "stopReading": "Vorlesen stoppen"
   },
   "score": {
     "title": "Absatzbewertungen",

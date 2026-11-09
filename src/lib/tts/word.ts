@@ -5,15 +5,22 @@ import { showToast } from "$lib/stores/toast";
 import { buildSpeechRequest, detectLanguage, hasSpeakableText } from "$lib/utils/tts";
 
 /**
- * Alt+click pronunciation in the 词/句 modes: one word or sentence goes through
- * the same Kokoro backend as read-aloud, but plays on its own AudioContext so
- * the document's timeline keeps running untouched.
+ * Alt+click pronunciation in the 词/句/段 modes: one word, sentence or paragraph
+ * goes through the same Kokoro backend as read-aloud, but plays on its own
+ * AudioContext so the document's timeline keeps running untouched.
  */
 
 let context: AudioContext | null = null;
 let source: AudioBufferSourceNode | null = null;
 let abortCurrent: AbortController | null = null;
 let requestId = 0;
+let currentOnEnd: ((completed: boolean) => void) | null = null;
+
+export interface SpeakOptions {
+  /** Called once when this request ends naturally, fails, or is stopped by a
+   *  newer request. `completed` is true only for a natural end. */
+  onEnd?: (completed: boolean) => void;
+}
 
 function ensureContext(): AudioContext {
   if (!context) context = new AudioContext();
@@ -21,19 +28,33 @@ function ensureContext(): AudioContext {
   return context;
 }
 
+function finishCurrent(completed: boolean): void {
+  const callback = currentOnEnd;
+  currentOnEnd = null;
+  if (!callback) return;
+  try {
+    callback(completed);
+  } catch {
+    // A callback must never break playback teardown.
+  }
+}
+
 function stopCurrent(): void {
   if (abortCurrent) {
     abortCurrent.abort();
     abortCurrent = null;
   }
-  if (!source) return;
-  try {
-    source.stop();
-  } catch {
-    // Already stopped; disconnect still releases the node.
+  if (source) {
+    const node = source;
+    source = null;
+    try {
+      node.stop();
+    } catch {
+      // Already stopped; disconnect still releases the node.
+    }
+    node.disconnect();
   }
-  source.disconnect();
-  source = null;
+  finishCurrent(false);
 }
 
 function reportError(error: unknown): void {
@@ -65,10 +86,13 @@ async function fetchAudio(text: string, signal: AbortSignal): Promise<ArrayBuffe
   return response.arrayBuffer();
 }
 
-/** Speak one word or sentence, replacing whatever the previous Alt+click was playing. */
-export function speakText(text: string): void {
+/** Speak one word, sentence or paragraph chunk, replacing whatever was playing. */
+export function speakText(text: string, options: SpeakOptions = {}): void {
   const value = text.trim();
-  if (!value || !hasSpeakableText(value)) return;
+  if (!value || !hasSpeakableText(value)) {
+    options.onEnd?.(false);
+    return;
+  }
 
   // Called synchronously from the click handler: unlocking the context now is
   // what lets audio that arrives after the network round-trip still play.
@@ -77,11 +101,15 @@ export function speakText(text: string): void {
     ctx = ensureContext();
   } catch (error) {
     reportError(error);
+    options.onEnd?.(false);
     return;
   }
 
-  stopCurrent();
+  // Bump the id before stopping so the old node's `ended` event cannot finish
+  // the request that is about to start.
   const id = ++requestId;
+  stopCurrent();
+  currentOnEnd = options.onEnd ?? null;
   const abort = new AbortController();
   abortCurrent = abort;
 
@@ -96,14 +124,23 @@ export function speakText(text: string): void {
       node.buffer = buffer;
       node.connect(ctx.destination);
       node.onended = () => {
+        if (id !== requestId) return;
         if (source === node) source = null;
         node.disconnect();
+        finishCurrent(true);
       };
       source = node;
       node.start();
     } catch (error) {
       if (id !== requestId) return;
       reportError(error);
+      finishCurrent(false);
     }
   })();
+}
+
+/** Stop whatever `speakText` started (used by the paragraph card's stop button). */
+export function stopTextSpeech(): void {
+  requestId++;
+  stopCurrent();
 }

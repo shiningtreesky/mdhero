@@ -155,7 +155,7 @@
     "sentenceFailed": "Error al obtener la traducción",
     "sentenceMemoryOnly": "Esta pestaña no tiene archivo en disco; las traducciones de frases solo se guardan durante esta sesión.",
     "speakOnClick": "Leer en voz alta",
-    "speakOnClickHint": "Se aplica de inmediato. Si está marcado, al hacer clic izquierdo en una palabra o frase se muestra su glosa/traducción y se lee en voz alta."
+    "speakOnClickHint": "Se aplica de inmediato. Si está marcado, al hacer clic izquierdo en una palabra o frase se muestra su glosa/traducción y se lee en voz alta; en el modo párrafo, al abrir la tarjeta de un párrafo se lee el original automáticamente."
   },
   "paras": {
     "memoryOnly": "Esta pestaña no tiene archivo en disco; las traducciones de párrafos solo se guardan en el almacenamiento local del navegador.",
@@ -167,7 +167,9 @@
     "skippedTooltip": "Omitido: no se puntúa",
     "changedTooltip": "El inglés cambió: confirma de nuevo esta traducción",
     "changedWarning": "El párrafo en inglés cambió después de guardar esta traducción. Revísalo y confirma de nuevo.",
-    "openTooltip": "Editar esta traducción"
+    "openTooltip": "Editar esta traducción",
+    "readAloud": "Leer en voz alta",
+    "stopReading": "Detener lectura"
   },
   "score": {
     "title": "Puntuaciones por párrafo",

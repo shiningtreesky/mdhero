@@ -155,7 +155,7 @@
     "sentenceFailed": "Translation failed",
     "sentenceMemoryOnly": "This tab has no file on disk, so sentence translations are cached for this session only.",
     "speakOnClick": "Read aloud",
-    "speakOnClickHint": "Takes effect immediately. When checked, left-clicking a word or sentence shows its gloss/translation and reads it aloud."
+    "speakOnClickHint": "Takes effect immediately. When checked, left-clicking a word or sentence shows its gloss/translation and reads it aloud; in paragraph mode, opening a paragraph card reads the original aloud automatically."
   },
   "paras": {
     "memoryOnly": "This tab has no file on disk, so paragraph translations are stored in this browser's local storage only.",
@@ -167,7 +167,9 @@
     "skippedTooltip": "Skipped: not scored",
     "changedTooltip": "The English changed — confirm this translation again",
     "changedWarning": "The English paragraph changed after this translation was saved. Review it and confirm again.",
-    "openTooltip": "Edit this translation"
+    "openTooltip": "Edit this translation",
+    "readAloud": "Read aloud",
+    "stopReading": "Stop reading"
   },
   "score": {
     "title": "Paragraph Scores",

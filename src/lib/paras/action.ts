@@ -1,5 +1,8 @@
 import { get } from "svelte/store";
 import { translate } from "$lib/i18n";
+import { glossarySettings } from "$lib/stores/glossarySettings";
+import { speakText, stopTextSpeech } from "$lib/tts/word";
+import { splitSpeechChunks } from "$lib/utils/tts";
 import {
   collectParagraphs,
   hashParagraphs,
@@ -22,6 +25,10 @@ import {
  * white bubble icon at the paragraph's end. Bubbles are absolutely positioned
  * inside the paragraph: they occupy no space, keep the line breaks identical,
  * and follow the paragraph while the page scrolls without a scroll listener.
+ *
+ * Alt+clicking a paragraph (or the speaker button on its card) reads the English
+ * original aloud through the same Kokoro backend as the 词/句 modes. When the
+ * "朗读" option is enabled, opening the card starts reading automatically.
  *
  * Paragraph identity is the ordinal plus a hash of the source text, so a saved
  * translation that no longer matches is flagged instead of silently shown.
@@ -165,6 +172,42 @@ html.dark .${CARD_CLASS} {
   background: rgba(0, 0, 0, 0.08);
   color: #1c1c1e;
 }
+.${CARD_CLASS}-speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -3px 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #8e8e93;
+  cursor: pointer;
+  line-height: 0;
+}
+.${CARD_CLASS}-speak:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1c1c1e;
+}
+.${CARD_CLASS}-speak.is-speaking {
+  color: #0891b2;
+}
+.${CARD_CLASS}-speak.is-speaking:hover {
+  background: rgba(8, 145, 178, 0.12);
+  color: #0e7490;
+}
+html.dark .${CARD_CLASS}-speak { color: #8e8e93; }
+html.dark .${CARD_CLASS}-speak:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #e5e5e7;
+}
+html.dark .${CARD_CLASS}-speak.is-speaking { color: #22d3ee; }
+html.dark .${CARD_CLASS}-speak.is-speaking:hover {
+  background: rgba(34, 211, 238, 0.16);
+  color: #67e8f9;
+}
 html.dark .${CARD_CLASS}-close { color: #8e8e93; }
 html.dark .${CARD_CLASS}-close:hover {
   background: rgba(255, 255, 255, 0.14);
@@ -263,6 +306,14 @@ function closeIcon(): string {
   return '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
 }
 
+function speakerIcon(): string {
+  return '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5h1.4L5.8 2.4v7.2L3.4 7.5H2a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M7.8 4.2a2.3 2.3 0 0 1 0 3.6"/><path d="M9.3 2.7a4.1 4.1 0 0 1 0 6.6"/></svg>';
+}
+
+function stopIcon(): string {
+  return '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1"/></svg>';
+}
+
 export function createParasBrowser(
   container: HTMLElement,
   article: HTMLElement,
@@ -285,6 +336,9 @@ export function createParasBrowser(
   let cardEntry: ParagraphEntry | null = null;
   let cardInput: HTMLTextAreaElement | null = null;
   let cardConfirm: HTMLButtonElement | null = null;
+  let cardSpeak: HTMLButtonElement | null = null;
+  let speakingIndex: number | null = null;
+  let speechToken = 0;
   let rafPending = false;
   let rebuildToken = 0;
   let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
@@ -434,15 +488,78 @@ export function createParasBrowser(
   }
 
   // --- edit card ----------------------------------------------------------
+  function updateCardSpeakButton(): void {
+    if (!cardSpeak || !cardEntry) return;
+    const playing = speakingIndex === cardEntry.index;
+    cardSpeak.innerHTML = playing ? stopIcon() : speakerIcon();
+    const label = translate(playing ? "paras.stopReading" : "paras.readAloud");
+    cardSpeak.title = label;
+    cardSpeak.setAttribute("aria-label", label);
+    cardSpeak.setAttribute("aria-pressed", playing ? "true" : "false");
+    cardSpeak.classList.toggle("is-speaking", playing);
+  }
+
+  function stopParagraphSpeech(): void {
+    speechToken++;
+    speakingIndex = null;
+    stopTextSpeech();
+    updateCardSpeakButton();
+  }
+
+  /** Read a paragraph's English original in Kokoro-sized chunks, so a long
+   *  paragraph starts quickly and the stop button takes effect between chunks. */
+  function speakParagraph(entry: ParagraphEntry): void {
+    const chunks = splitSpeechChunks(entry.text);
+    if (chunks.length === 0) return;
+
+    const token = ++speechToken;
+    speakingIndex = entry.index;
+    updateCardSpeakButton();
+
+    const play = (index: number): void => {
+      if (token !== speechToken) return;
+      if (index >= chunks.length) {
+        speakingIndex = null;
+        updateCardSpeakButton();
+        return;
+      }
+      speakText(chunks[index].text, {
+        onEnd: (completed) => {
+          if (token !== speechToken) return;
+          if (!completed) {
+            speechToken++;
+            speakingIndex = null;
+            updateCardSpeakButton();
+            return;
+          }
+          play(index + 1);
+        },
+      });
+    };
+
+    play(0);
+  }
+
+  function toggleParagraphSpeech(entry: ParagraphEntry): void {
+    if (speakingIndex === entry.index) {
+      stopParagraphSpeech();
+      return;
+    }
+    speakParagraph(entry);
+  }
+
   function closeCard(): void {
     if (!card) return;
     const element = card;
+    const entry = cardEntry;
     card = null;
     cardEntry = null;
     cardInput = null;
     cardConfirm = null;
+    cardSpeak = null;
     element.remove();
     params.onCardState?.(false);
+    if (entry && speakingIndex === entry.index) stopParagraphSpeech();
   }
 
   function label(text: string, className: string): HTMLElement {
@@ -469,6 +586,19 @@ export function createParasBrowser(
     head.className = `${CARD_CLASS}-head`;
     head.appendChild(label(translate("paras.cardTitle", { n: entry.index + 1 }), `${CARD_CLASS}-title`));
     head.appendChild(label(translate("paras.original"), `${CARD_CLASS}-hint`));
+    const speak = document.createElement("button");
+    speak.type = "button";
+    speak.className = `${CARD_CLASS}-speak`;
+    speak.innerHTML = speakerIcon();
+    speak.title = translate("paras.readAloud");
+    speak.setAttribute("aria-label", speak.title);
+    speak.setAttribute("aria-pressed", "false");
+    speak.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleParagraphSpeech(entry);
+    });
+    head.appendChild(speak);
     const close = document.createElement("button");
     close.type = "button";
     close.className = `${CARD_CLASS}-close`;
@@ -519,8 +649,14 @@ export function createParasBrowser(
     cardEntry = entry;
     cardInput = input;
     cardConfirm = confirm;
+    cardSpeak = speak;
+    updateCardSpeakButton();
     params.onCardState?.(true);
     placeCard();
+
+    if (get(glossarySettings).speakOnClick && speakingIndex !== entry.index) {
+      speakParagraph(entry);
+    }
 
     input.addEventListener("input", () => {
       session.setDraft(entry.index, input.value);
@@ -664,7 +800,9 @@ export function createParasBrowser(
       const entry = entries.find((candidate) => candidate.index === index);
       event.preventDefault();
       event.stopPropagation();
-      if (entry) openCard(entry);
+      if (!entry) return;
+      if (event.altKey) speakParagraph(entry);
+      else openCard(entry);
       return;
     }
 
@@ -676,7 +814,10 @@ export function createParasBrowser(
     // is the unit being edited here.
     event.preventDefault();
     event.stopPropagation();
-    openCard(entry);
+    // Alt+click is the read-aloud gesture from the 词/句 modes; it must not also
+    // open the edit card.
+    if (event.altKey) speakParagraph(entry);
+    else openCard(entry);
   }
 
   function onDocumentPointerDown(event: MouseEvent): void {

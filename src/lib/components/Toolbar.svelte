@@ -246,6 +246,39 @@
     onOpenGlossSettings();
   }
 
+  // 段 shares the 词/句 gesture too: long-press / right-click opens the same
+  // settings panel, where the "朗读" option turns on card auto-read.
+  let parasPressTimer: ReturnType<typeof setTimeout> | undefined;
+  let parasLongPressed = false;
+
+  function startParasPress() {
+    clearTimeout(parasPressTimer);
+    parasPressTimer = setTimeout(() => {
+      parasLongPressed = true;
+      onOpenGlossSettings();
+    }, 600);
+  }
+
+  function cancelParasPress() {
+    clearTimeout(parasPressTimer);
+  }
+
+  function handleParasClick() {
+    if (parasLongPressed) {
+      parasLongPressed = false;
+      return;
+    }
+    closeAll();
+    onToggleParas();
+  }
+
+  function handleParasContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    cancelParasPress();
+    parasLongPressed = false;
+    onOpenGlossSettings();
+  }
+
   // Same gesture on 对比提交: short press submits, long press / right-click
   // opens the grading endpoint panel. It is never natively disabled so those
   // gestures keep working while the button looks greyed out.
@@ -414,7 +447,12 @@
       title={parasTitle}
       aria-label={$t('toolbar.paras')}
       aria-pressed={parasActive}
-      onclick={() => { closeAll(); onToggleParas(); }}
+      onclick={handleParasClick}
+      onpointerdown={startParasPress}
+      onpointerup={cancelParasPress}
+      onpointerleave={cancelParasPress}
+      onpointercancel={cancelParasPress}
+      oncontextmenu={handleParasContextMenu}
     >{$t('toolbar.paras')}{#if parasActive && parasTotal > 0}<span class="paras-progress">{parasTranslated}/{parasTotal}</span>{/if}</button>
 
     <!-- Sentence ("句") mode: same as 词, but the unit is a whole sentence.

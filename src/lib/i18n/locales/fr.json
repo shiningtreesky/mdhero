@@ -155,7 +155,7 @@
     "sentenceFailed": "Échec de la traduction",
     "sentenceMemoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les traductions de phrases ne sont conservées que pour cette session.",
     "speakOnClick": "Lire à voix haute",
-    "speakOnClickHint": "Pris en compte immédiatement. Si cette option est cochée, un clic gauche sur un mot ou une phrase affiche sa glose/traduction et lit le texte à voix haute."
+    "speakOnClickHint": "Pris en compte immédiatement. Si cette option est cochée, un clic gauche sur un mot ou une phrase affiche sa glose/traduction et lit le texte à voix haute ; en mode paragraphe, l'ouverture de la fiche d'un paragraphe lit automatiquement l'original."
   },
   "paras": {
     "memoryOnly": "Cet onglet n'a pas de fichier sur le disque ; les traductions de paragraphes sont stockées uniquement dans le stockage local du navigateur.",
@@ -167,7 +167,9 @@
     "skippedTooltip": "Ignoré : non noté",
     "changedTooltip": "L'anglais a changé — confirmez à nouveau cette traduction",
     "changedWarning": "Le paragraphe anglais a changé après l'enregistrement de cette traduction. Vérifiez puis confirmez à nouveau.",
-    "openTooltip": "Modifier cette traduction"
+    "openTooltip": "Modifier cette traduction",
+    "readAloud": "Lire à voix haute",
+    "stopReading": "Arrêter la lecture"
   },
   "score": {
     "title": "Notes par paragraphe",

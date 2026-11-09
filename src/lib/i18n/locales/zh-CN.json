@@ -155,7 +155,7 @@
     "sentenceFailed": "翻译获取失败",
     "sentenceMemoryOnly": "当前标签页没有磁盘文件，句子翻译只会缓存在本次会话中。",
     "speakOnClick": "朗读",
-    "speakOnClickHint": "勾选后立即生效：左键点击单词或句子时，会同时显示释义/翻译并朗读。"
+    "speakOnClickHint": "勾选后立即生效：左键点击单词或句子时，会同时显示释义/翻译并朗读；段模式打开段落卡片时会自动朗读原文。"
   },
   "paras": {
     "memoryOnly": "此标签页没有磁盘路径，段落译文只保存在本机浏览器存储中。",
@@ -167,7 +167,9 @@
     "skippedTooltip": "已跳过，不参与评分",
     "changedTooltip": "原文已变，请重新确认译文",
     "changedWarning": "这段英文原文在保存译文后发生了变化，请核对后重新确认。",
-    "openTooltip": "编辑这段译文"
+    "openTooltip": "编辑这段译文",
+    "readAloud": "朗读",
+    "stopReading": "停止朗读"
   },
   "score": {
     "title": "段落评分",
