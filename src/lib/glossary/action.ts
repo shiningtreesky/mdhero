@@ -17,6 +17,7 @@ import {
   caretAtPoint,
   collectTextNodes,
   excluded,
+  anchorRect,
   placeBubble,
   placeBubbleAt,
   supportsHighlight,
@@ -114,13 +115,13 @@ function injectStyles(): void {
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
   border: 1px solid #e5e5ea;
   background: #fff;
   color: #1c1c1e;
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.25;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -129,7 +130,7 @@ function injectStyles(): void {
   pointer-events: none;
 }
 .${BUBBLE_CLASS}-phonetic {
-  margin-bottom: 1px;
+  margin-bottom: 0;
   color: #636366;
   font-family: "Segoe UI", "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
   white-space: pre-wrap;
@@ -279,7 +280,7 @@ export function createGlossaryBrowser(
         entry.bubble.style.display = "none";
         continue;
       }
-      const rect = entry.range.getBoundingClientRect();
+      const rect = anchorRect(entry.range);
       if (
         (rect.width === 0 && rect.height === 0) ||
         rect.bottom < 0 ||

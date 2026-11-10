@@ -72,13 +72,13 @@ function injectStyles(): void {
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
-  padding: 5px 9px;
-  border-radius: 7px;
+  padding: 3px 6px;
+  border-radius: 6px;
   border: 1px solid #e5e5ea;
   background: #fff;
   color: #1c1c1e;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.35;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   white-space: normal;
   overflow-wrap: anywhere;

@@ -77,8 +77,37 @@ export function caretAtPoint(x: number, y: number): CaretHit | null {
   return { node: node as Text, offset: range.startOffset };
 }
 
-/** Keep the bubble glued to the range: below it by default, flipped above when
- *  the viewport bottom would clip it, and clamped horizontally.
+/** The range's box, trimmed to the glyphs instead of the line box.
+ *
+ *  `Range.getBoundingClientRect()` returns the line box, which carries half the
+ *  leading above and below the glyphs: at 1.7 line spacing a 17px font leaves
+ *  ~6px of empty space under the text, and a bubble glued to that edge floats
+ *  visibly below the word. Shortening the box to the glyphs lets "below the
+ *  word" mean the line right under the letters. */
+export function anchorRect(range: Range): DOMRect {
+  const rect = range.getBoundingClientRect();
+  const node = range.startContainer;
+  const element = node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node.parentElement;
+  if (!element) return rect;
+  const style = getComputedStyle(element);
+  const lineHeight = parseFloat(style.lineHeight);
+  const fontSize = parseFloat(style.fontSize);
+  const box = Number.isFinite(lineHeight) && lineHeight > 0
+    ? Math.min(lineHeight, rect.height)
+    : rect.height;
+  const glyph = Number.isFinite(fontSize) && fontSize > 0
+    ? Math.min(fontSize, box)
+    : box;
+  const slack = Math.max(0, (box - glyph) / 2);
+  if (slack < 0.5) return rect;
+  return new DOMRect(rect.x, rect.y + slack, rect.width, rect.height - slack * 2);
+}
+
+/** Keep the bubble glued to the range: one pixel under the glyphs by default,
+ *  flipped above when the viewport bottom would clip it, and clamped
+ *  horizontally.
  *
  *  `occupied` lists bubbles already on screen (the pinned 词 mode). A bubble
  *  that would overlap one is shifted below it — or above it near the viewport
@@ -97,12 +126,12 @@ export function placeBubbleAt(
   const width = bubble.offsetWidth;
   const height = bubble.offsetHeight;
   let left = rect.left + rect.width / 2 - width / 2;
-  let top = rect.bottom + 4;
-  if (top + height > window.innerHeight - 6) top = rect.top - height - 4;
-  if (top < 4) top = rect.bottom + 4;
+  let top = rect.bottom + 1;
+  if (top + height > window.innerHeight - 6) top = rect.top - height - 1;
+  if (top < 4) top = rect.bottom + 1;
 
   if (occupied.length > 0) {
-    const gap = 4;
+    const gap = 3;
     const overlaps = (candidateTop: number): DOMRect | undefined => {
       const right = left + width;
       const bottom = candidateTop + height;
@@ -134,5 +163,5 @@ export function placeBubbleAt(
 }
 
 export function placeBubble(bubble: HTMLElement, range: Range): void {
-  placeBubbleAt(bubble, range.getBoundingClientRect());
+  placeBubbleAt(bubble, anchorRect(range));
 }
