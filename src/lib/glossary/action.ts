@@ -91,11 +91,21 @@ interface PinnedEntry {
   node: Text;
   token: WordToken;
   range: Range;
+  /** Which appearance of the word this is in the document, used to restore it. */
+  occurrence: number;
   bubble: HTMLDivElement;
   /** ESC hides every pinned bubble but keeps the entry and its highlight. */
   hiddenByUser: boolean;
   /** Guards the async lookup after this occurrence is unpinned or destroyed. */
   requestToken: number;
+}
+
+/** One word appearance in the article, in reading order. */
+interface WordPosition {
+  node: Text;
+  token: WordToken;
+  range: Range;
+  occurrence: number;
 }
 
 interface Browser {
@@ -195,6 +205,8 @@ export function createGlossaryBrowser(
   let requestToken = 0;
   let rafPending = false;
   let pinned = params.pinned === true;
+  /** True while restoring saved pins: those are already in the file. */
+  let restoring = false;
   const pinnedEntries: PinnedEntry[] = [];
   const pinnedOwner = {};
 
@@ -393,6 +405,7 @@ export function createGlossaryBrowser(
     entry.bubble.remove();
     markFallbackPinned(entry.node, false);
     refreshPinnedHighlight();
+    persistPins();
   }
 
   function clearPinned(): void {
@@ -420,7 +433,7 @@ export function createGlossaryBrowser(
     );
   }
 
-  function pinWord(node: Text, token: WordToken, range: Range): void {
+  function pinWord(node: Text, token: WordToken, range: Range, occurrence: number): void {
     const existing = findPinned(node, token.start);
     if (existing) {
       // A plain click after ESC brings the gloss back; it never unpins. Only
@@ -434,6 +447,7 @@ export function createGlossaryBrowser(
       node,
       token,
       range,
+      occurrence,
       bubble: document.createElement("div"),
       hiddenByUser: false,
       requestToken: 0,
@@ -444,13 +458,86 @@ export function createGlossaryBrowser(
     markFallbackPinned(node, true);
     refreshPinnedHighlight();
     void loadPinned(entry);
+    if (!restoring) persistPins();
+  }
+
+  /** Lazy index of every word appearance, built once per mounted article. */
+  let wordIndex: Map<string, WordPosition[]> | null = null;
+
+  function ensureWordIndex(): Map<string, WordPosition[]> {
+    if (wordIndex) return wordIndex;
+    const index = new Map<string, WordPosition[]>();
+    const counts = new Map<string, number>();
+    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      if (!text.data.trim() || excluded(text, article)) continue;
+      for (const token of tokenizeWords(text.data)) {
+        const key = normalizeWord(token.word);
+        if (!key) continue;
+        const occurrence = counts.get(key) ?? 0;
+        counts.set(key, occurrence + 1);
+        const range = document.createRange();
+        range.setStart(text, token.start);
+        range.setEnd(text, token.end);
+        const position: WordPosition = { node: text, token, range, occurrence };
+        const list = index.get(key);
+        if (list) list.push(position);
+        else index.set(key, [position]);
+      }
+    }
+    wordIndex = index;
+    return index;
+  }
+
+  function occurrenceOf(node: Text, token: WordToken): number {
+    const list = ensureWordIndex().get(normalizeWord(token.word)) ?? [];
+    const found = list.find(
+      (position) => position.node === node && position.token.start === token.start,
+    );
+    return found?.occurrence ?? 0;
+  }
+
+  /** Write the current pins into `.words.json`; unpinning has to be a removal,
+   *  so the whole list is replaced. */
+  function persistPins(): void {
+    cache.setPins(
+      pinnedEntries.map((entry) => ({
+        word: entry.token.word,
+        occurrence: entry.occurrence,
+      })),
+    );
+  }
+
+  /** Re-create the bubbles saved with this document. Only runs while the pin
+   *  toggle is on, which is the moment the reader asked for them back. */
+  function restorePins(): void {
+    if (destroyed || !pinned) return;
+    const stored = cache.getPins();
+    if (stored.length === 0) return;
+    restoring = true;
+    try {
+      for (const pin of stored) {
+        const word = typeof pin.word === "string" ? pin.word : "";
+        const occurrence = typeof pin.occurrence === "number" ? pin.occurrence : -1;
+        if (!word || occurrence < 0) continue;
+        const position = ensureWordIndex().get(normalizeWord(word))?.[occurrence];
+        if (!position || findPinned(position.node, position.token.start)) continue;
+        pinWord(position.node, position.token, position.range, occurrence);
+      }
+    } finally {
+      restoring = false;
+    }
   }
 
   function setPinned(on: boolean): void {
     if (pinned === on) return;
     pinned = on;
     hideBubble();
+    // Closing the mode hides the bubbles but must not erase what was pinned;
+    // the file keeps them for the next visit.
     clearPinned();
+    if (on) void cache.ready.then(() => restorePins());
   }
 
   /** Alt+click always speaks; with the 朗读 option on, a plain left-click does too. */
@@ -475,7 +562,7 @@ export function createGlossaryBrowser(
         return;
       }
       if (wantsSpeech(event)) speakText(token.word);
-      pinWord(node, token, range);
+      pinWord(node, token, range, occurrenceOf(node, token));
       return;
     }
 
@@ -658,6 +745,9 @@ export function createGlossaryBrowser(
   // Line spacing (and font size) reflow the article without a resize event, and
   // every pinned bubble is positioned from its word's rect: re-glue them.
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  // Pins saved with this document come back once the file has been read; the
+  // toggle may be flipped either before or after `ready` resolves.
+  void cache.ready.then(() => restorePins());
 
   const observer = new MutationObserver(() => {
     clearHover();

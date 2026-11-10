@@ -81,6 +81,8 @@
     "glossPin": "Pin definitions",
     "glossPinOn": "Pin definitions: on (click to turn off)",
     "glossPinOff": "Pin definitions: off (click to turn on)",
+    "glossPinNeedsFile": "Pin (save the file first)",
+    "pinLocksEditing": "A pinned document is read-only; turn the pin toggle off to edit",
     "sentence": "句",
     "sentenceOn": "Sentence mode: on (click to turn off)",
     "sentenceOff": "Sentence mode: off (click to turn on)",

@@ -10,8 +10,10 @@ import { sentenceRanges, skipTextNode, unitText } from "$lib/utils/sentence-dom"
 import { SENTENCE_FILE_SUFFIX, createGlossCache, type GlossCache } from "./cache";
 import { lookupSentence } from "./lookup";
 import {
+  anchorRect,
   caretAtPoint,
   placeBubble,
+  placeBubbleAt,
   supportsHighlight,
   type CaretHit,
 } from "./shared";
@@ -32,6 +34,7 @@ import {
  */
 
 const HOVER_NAME = "mdhero-sentence-hover";
+const PINNED_NAME = "mdhero-sentence-pinned";
 const STYLE_ID = "mdhero-sentence-style";
 const BUBBLE_CLASS = "mdhero-sentence-bubble";
 const SENTENCE_CLASS = "mdhero-sentence";
@@ -45,7 +48,22 @@ export interface SentenceParams {
   /** Identifies the cache; paste/URL tabs use it for the localStorage key. */
   tabId: string | null;
   filePath: string | null;
+  /** Keep every clicked sentence's translation on screen (the 钉住 toggle). */
+  pinned?: boolean;
 }
+
+/** A sentence whose translation stays on screen, like a pinned word. */
+interface PinnedSentence {
+  entry: SentenceEntry;
+  bubble: HTMLDivElement;
+  hiddenByUser: boolean;
+  /** Guards the async lookup after this sentence is unpinned or destroyed. */
+  requestToken: number;
+}
+
+/** Pinned ranges of every mounted pane, keyed by owner, so one pane rebuilding
+ *  the shared highlight cannot drop the other's sentences. */
+const pinnedRanges = new Map<object, Range[]>();
 
 interface SentenceEntry {
   unit: HTMLElement;
@@ -60,6 +78,7 @@ interface SentenceEntry {
 
 interface Browser {
   destroy(): void;
+  setPinned(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -68,6 +87,7 @@ function injectStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
 ::highlight(${HOVER_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
+::highlight(${PINNED_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
 .${SENTENCE_CLASS}.${HOVER_CLASS} { background-color: rgba(234, 179, 8, 0.18); border-radius: 3px; }
 .${BUBBLE_CLASS} {
   position: fixed;
@@ -149,8 +169,9 @@ export function createSentenceBrowser(
 
   const sentenceCache = new Map<HTMLElement, SentenceEntry[]>();
   const highlightRegistry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
-  const HighlightCtor = (globalThis as unknown as { Highlight?: new (range: Range) => unknown })
-    .Highlight;
+  const HighlightCtor = (
+    globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }
+  ).Highlight;
 
   let destroyed = false;
   let hoverKey = "";
@@ -159,6 +180,12 @@ export function createSentenceBrowser(
   let anchorNode: Text | null = null;
   let requestToken = 0;
   let rafPending = false;
+
+  let pinned = params.pinned === true;
+  /** True while restoring saved pins: those are already in the file. */
+  let restoring = false;
+  const pinnedSentences = new Map<string, PinnedSentence>();
+  const pinnedOwner = {};
 
   // Fallback only: sentence fragments wrapped in spans, grouped by sentence id.
   const fallbackSpans = new Map<string, HTMLElement[]>();
@@ -232,7 +259,40 @@ export function createSentenceBrowser(
     requestAnimationFrame(() => {
       rafPending = false;
       position();
+      positionPinned();
     });
+  }
+
+  /** Fill a bubble with the sentence's translation, cache first, model second.
+   *  Shared by the hover bubble and every pinned one. */
+  async function fillBubble(
+    target: HTMLElement,
+    entry: SentenceEntry,
+    isCurrent: () => boolean,
+  ): Promise<void> {
+    if (!entry.key) return;
+    const cached = cache.get(entry.key);
+    if (cached && cached.length > 0) {
+      target.textContent = cached.join(" ");
+      return;
+    }
+
+    await cache.ready;
+    if (destroyed || !isCurrent()) return;
+    const late = cache.get(entry.key);
+    if (late && late.length > 0) {
+      target.textContent = late.join(" ");
+      return;
+    }
+
+    const result = await lookupSentence(entry.key);
+    if (destroyed || !isCurrent()) return;
+    if (result.ok) {
+      target.textContent = result.text;
+      cache.set(entry.key, [result.text]);
+    } else {
+      target.textContent = translate("glossary.sentenceFailed");
+    }
   }
 
   async function showBubble(
@@ -257,31 +317,161 @@ export function createSentenceBrowser(
     position();
 
     const request = ++requestToken;
-    const cached = cache.get(entry.key);
-    if (cached && cached.length > 0) {
-      bubble.textContent = cached.join(" ");
-      position();
-      return;
-    }
-
-    await cache.ready;
+    await fillBubble(bubble, entry, () => !destroyed && request === requestToken);
     if (destroyed || request !== requestToken) return;
-    const late = cache.get(entry.key);
-    if (late && late.length > 0) {
-      bubble.textContent = late.join(" ");
-      position();
-      return;
-    }
-
-    const result = await lookupSentence(entry.key);
-    if (destroyed || request !== requestToken) return;
-    if (result.ok) {
-      bubble.textContent = result.text;
-      cache.set(entry.key, [result.text]);
-    } else {
-      bubble.textContent = translate("glossary.sentenceFailed");
-    }
     position();
+  }
+
+  // --- pinned sentences ----------------------------------------------------
+  function rebuildPinnedHighlight(): void {
+    if (!useHighlight || !highlightRegistry || !HighlightCtor) return;
+    const ranges: Range[] = [];
+    for (const list of pinnedRanges.values()) ranges.push(...list);
+    if (ranges.length === 0) {
+      highlightRegistry.delete(PINNED_NAME);
+      return;
+    }
+    highlightRegistry.set(PINNED_NAME, new HighlightCtor(...ranges));
+  }
+
+  function refreshPinnedRanges(): void {
+    if (!useHighlight) return;
+    const ranges: Range[] = [];
+    for (const pin of pinnedSentences.values()) {
+      if (pin.entry.range) ranges.push(pin.entry.range);
+    }
+    if (ranges.length === 0) pinnedRanges.delete(pinnedOwner);
+    else pinnedRanges.set(pinnedOwner, ranges);
+    rebuildPinnedHighlight();
+  }
+
+  /** Keep every pinned bubble glued to its sentence, avoiding overlaps. */
+  function positionPinned(): void {
+    const occupied: DOMRect[] = [];
+    for (const pin of pinnedSentences.values()) {
+      if (pin.hiddenByUser || !pin.entry.range) {
+        pin.bubble.style.display = "none";
+        continue;
+      }
+      const rect = anchorRect(pin.entry.range);
+      if (
+        (rect.width === 0 && rect.height === 0) ||
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight
+      ) {
+        pin.bubble.style.display = "none";
+        continue;
+      }
+      placeBubbleAt(pin.bubble, rect, occupied);
+      occupied.push(pin.bubble.getBoundingClientRect());
+    }
+  }
+
+  /** Write the current pins into `.sentences.json`; unpinning is a removal, so
+   *  the whole list is replaced. */
+  function persistPins(): void {
+    cache.setPins(
+      [...pinnedSentences.values()].map(({ entry }) => ({
+        key: entry.key,
+        text: entry.text,
+        unitIndex: entry.unitIndex,
+        index: entry.index,
+      })),
+    );
+  }
+
+  function pinSentence(entry: SentenceEntry): void {
+    if (!entry.range || !entry.key) return;
+    const existing = pinnedSentences.get(entry.key);
+    if (existing) {
+      existing.hiddenByUser = false;
+      existing.bubble.style.display = "block";
+      positionPinned();
+      return;
+    }
+
+    const target = document.createElement("div");
+    target.className = BUBBLE_CLASS;
+    document.body.appendChild(target);
+    const pin: PinnedSentence = {
+      entry,
+      bubble: target,
+      hiddenByUser: false,
+      requestToken: 0,
+    };
+    pinnedSentences.set(entry.key, pin);
+    const request = ++pin.requestToken;
+    void fillBubble(
+      target,
+      entry,
+      () => pinnedSentences.get(entry.key) === pin && pin.requestToken === request,
+    ).then(() => positionPinned());
+    refreshPinnedRanges();
+    positionPinned();
+    if (!restoring) persistPins();
+  }
+
+  function removePinnedSentence(key: string): void {
+    const pin = pinnedSentences.get(key);
+    if (!pin) return;
+    pin.requestToken++;
+    pin.bubble.remove();
+    pinnedSentences.delete(key);
+    refreshPinnedRanges();
+    persistPins();
+  }
+
+  function clearPinnedSentences(): void {
+    for (const pin of pinnedSentences.values()) {
+      pin.requestToken++;
+      pin.bubble.remove();
+    }
+    pinnedSentences.clear();
+    refreshPinnedRanges();
+  }
+
+  /** Find the sentence a stored pin refers to: same text, preferring the block
+   *  it was read in. */
+  function findPinnedTarget(key: string, preferredUnit: number): SentenceEntry | null {
+    const ordered = [...units].sort((a, b) => {
+      if (a.index === preferredUnit) return -1;
+      if (b.index === preferredUnit) return 1;
+      return 0;
+    });
+    for (const unit of ordered) {
+      for (const entry of sentencesFor(unit.element)) {
+        if (entry.key === key) return entry;
+      }
+    }
+    return null;
+  }
+
+  /** Re-create the bubbles saved with this document, once the mode is on. */
+  function restorePins(): void {
+    if (destroyed || !pinned) return;
+    const stored = cache.getPins();
+    if (stored.length === 0) return;
+    restoring = true;
+    try {
+      for (const pin of stored) {
+        const key = typeof pin.key === "string" ? pin.key : "";
+        if (!key || pinnedSentences.has(key)) continue;
+        const preferredUnit = typeof pin.unitIndex === "number" ? pin.unitIndex : -1;
+        const entry = findPinnedTarget(key, preferredUnit);
+        if (entry) pinSentence(entry);
+      }
+    } finally {
+      restoring = false;
+    }
+  }
+
+  function setPinned(on: boolean): void {
+    if (pinned === on) return;
+    pinned = on;
+    hideBubble();
+    // Closing the mode hides the bubbles but keeps the file's pins.
+    clearPinnedSentences();
+    if (on) void cache.ready.then(() => restorePins());
   }
 
   /** Alt+click always speaks; with the 朗读 option on, a plain left-click does too. */
@@ -296,6 +486,18 @@ export function createSentenceBrowser(
   ): void {
     event.preventDefault();
     event.stopPropagation();
+    if (pinned) {
+      // Ctrl/Cmd+click is the only way to unpin one sentence.
+      if (event.ctrlKey || event.metaKey) {
+        if (pinnedSentences.has(entry.key)) {
+          removePinnedSentence(entry.key);
+          return;
+        }
+      }
+      if (wantsSpeech(event)) speakText(entry.text);
+      pinSentence(entry);
+      return;
+    }
     if (wantsSpeech(event)) {
       speakText(entry.text);
       void showBubble(entry, caret, false);
@@ -483,6 +685,9 @@ export function createSentenceBrowser(
   // A line-spacing change reflows the article without a resize event; the
   // bubble is positioned from its sentence's rect, so re-glue it.
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  // Pins saved with this document come back once the file has been read; the
+  // toggle may be flipped either before or after `ready` resolves.
+  void cache.ready.then(() => restorePins());
 
   const observer = new MutationObserver(() => {
     clearHover();
@@ -494,6 +699,9 @@ export function createSentenceBrowser(
   observer.observe(article, { childList: true, subtree: true, characterData: true });
 
   return {
+    setPinned(on: boolean) {
+      setPinned(on);
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -515,6 +723,9 @@ export function createSentenceBrowser(
         }
         unwrapFallbackSentences();
       }
+      clearPinnedSentences();
+      pinnedRanges.delete(pinnedOwner);
+      rebuildPinnedHighlight();
       highlightRegistry?.delete(HOVER_NAME);
       bubble.remove();
     },
@@ -546,10 +757,14 @@ export function sentence(node: HTMLElement, params: SentenceParams) {
         next.enabled !== current.enabled ||
         next.tabId !== current.tabId ||
         next.filePath !== current.filePath;
+      const pinChanged = !!next.pinned !== !!current.pinned;
       current = next;
-      if (!changed) return;
-      stop();
-      start();
+      if (changed) {
+        stop();
+        start();
+        return;
+      }
+      if (pinChanged) browser?.setPinned(!!next.pinned);
     },
     destroy() {
       stop();

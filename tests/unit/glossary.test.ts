@@ -229,6 +229,7 @@ describe("gloss cache files", () => {
     expect(parseGlossCacheDocument(text)).toEqual({
       glosses: { token: ["令牌"] },
       phonetics: { token: { uk: "ˈtəʊkən", us: "ˈtoʊkən" } },
+      pins: [],
     });
     expect(
       parseGlossCacheDocument(JSON.stringify({ version: 1, glosses: { run: ["跑"] } }))

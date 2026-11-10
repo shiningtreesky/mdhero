@@ -59,9 +59,11 @@
     glossTitle = "",
     onToggleGloss = () => {},
     onOpenGlossSettings = () => {},
-    /** Pin: keep every clicked word's gloss on screen while 词 mode is on. */
+    /** Pin: keep every clicked word's gloss (词) or translation (句) on screen. */
     glossPinActive = false,
-    glossPinTitle = "",
+    /** Usable only with a reading mode on and a document saved to disk. */
+    canPin = false,
+    pinTitle = "",
     onToggleGlossPin = () => {},
     /** Sentence reading ("句") mode: same interactions as 词, one sentence at a time. */
     canSentence = false,
@@ -124,7 +126,8 @@
     /** Long-press / right-click on the 词 button opens its own endpoint panel. */
     onOpenGlossSettings?: () => void;
     glossPinActive?: boolean;
-    glossPinTitle?: string;
+    canPin?: boolean;
+    pinTitle?: string;
     onToggleGlossPin?: () => void;
     canSentence?: boolean;
     sentenceActive?: boolean;
@@ -610,8 +613,8 @@
     <button
       class="btn gloss-btn gloss-pin-btn"
       class:active={glossPinActive}
-      disabled={!canGloss}
-      title={glossPinTitle}
+      disabled={!canPin}
+      title={pinTitle}
       aria-label={$t('toolbar.glossPin')}
       aria-pressed={glossPinActive}
       onclick={onToggleGlossPin}

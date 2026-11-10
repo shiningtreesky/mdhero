@@ -42,15 +42,68 @@ pub fn paras_store(path: String, item: Value) -> Result<(), String> {
 /// Replace the whole cache in one atomic write. Used when the unit numbering
 /// shifted and every saved entry has been re-attached to its new index; the
 /// stale indexes must disappear in the same write, which a per-item upsert
-/// cannot do.
+/// cannot do. Unconfirmed drafts ride along in the same file, so they are
+/// carried over rather than dropped.
 #[tauri::command]
 pub fn paras_replace(path: String, items: Vec<Value>) -> Result<(), String> {
     let _guard = WRITE_LOCK
         .lock()
         .map_err(|_| "Paragraph cache lock poisoned".to_string())?;
     let p = check_json_path(&path)?;
-    let doc = build_document(items);
+    let existing = read_optional(&p).unwrap_or(None);
+    let mut doc = build_document(items);
+    if let Some(drafts) = existing
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value.get("drafts").cloned())
+        .filter(|value| value.is_object())
+    {
+        doc["drafts"] = drafts;
+    }
     write_atomic(&p, &doc)
+}
+
+/// Store the unconfirmed drafts beside the confirmed translations.
+///
+/// Drafts used to live in localStorage only; keeping them in the same
+/// `.paras.json` means closing and reopening a document brings back what the
+/// reader was typing, on the same machine and in the same file as the rest of
+/// the paragraph work.
+#[tauri::command]
+pub fn paras_drafts_store(path: String, drafts: Value) -> Result<(), String> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "Paragraph cache lock poisoned".to_string())?;
+    let p = check_json_path(&path)?;
+    let existing = read_optional(&p).unwrap_or(None);
+    let mut doc = existing
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| json!({ "version": 1, "items": [] }));
+
+    if !doc["items"].is_array() {
+        doc["items"] = json!([]);
+    }
+    doc["version"] = json!(1);
+    doc["drafts"] = normalize_drafts(&drafts);
+    write_atomic(&p, &doc)
+}
+
+/// Keep only non-empty string drafts under numeric keys.
+fn normalize_drafts(drafts: &Value) -> Value {
+    let mut kept = serde_json::Map::new();
+    if let Some(map) = drafts.as_object() {
+        for (key, value) in map {
+            if key.parse::<u32>().is_err() {
+                continue;
+            }
+            if let Some(text) = value.as_str() {
+                if !text.is_empty() {
+                    kept.insert(key.clone(), json!(text));
+                }
+            }
+        }
+    }
+    Value::Object(kept)
 }
 
 /// Validate and normalise a list of entries: unknown statuses become

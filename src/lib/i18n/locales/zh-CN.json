@@ -81,6 +81,8 @@
     "glossPin": "钉住释义",
     "glossPinOn": "钉住释义：已开启（点击关闭）",
     "glossPinOff": "钉住释义：已关闭（点击开启）",
+    "glossPinNeedsFile": "钉住（请先保存文件）",
+    "pinLocksEditing": "钉住模式下文档为只读，先关闭钉住再编辑",
     "sentence": "句",
     "sentenceOn": "句子模式：已开启（点击关闭）",
     "sentenceOff": "句子模式：已关闭（点击开启）",

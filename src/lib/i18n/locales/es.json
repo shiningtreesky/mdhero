@@ -81,6 +81,8 @@
     "glossPin": "Fijar definiciones",
     "glossPinOn": "Fijar definiciones: activado (clic para desactivar)",
     "glossPinOff": "Fijar definiciones: desactivado (clic para activar)",
+    "glossPinNeedsFile": "Fijar (guarda el archivo primero)",
+    "pinLocksEditing": "Un documento fijado es de solo lectura; desactiva la fijación para editarlo",
     "sentence": "句",
     "sentenceOn": "Modo frase: activado (clic para desactivar)",
     "sentenceOff": "Modo frase: desactivado (clic para activar)",

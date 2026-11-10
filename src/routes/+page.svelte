@@ -88,6 +88,8 @@
   import { speechHighlight } from "$lib/tts/highlight";
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossPinMode } from "$lib/stores/glossPin";
+  import { sentencePinMode } from "$lib/stores/sentencePin";
+  import { isDiskCacheablePath } from "$lib/glossary/cache";
   import { glossary } from "$lib/glossary/action";
   import { sentenceMode } from "$lib/stores/sentenceMode";
   import { sentence as sentenceAction } from "$lib/glossary/sentence";
@@ -276,10 +278,15 @@
   let tocConcealed = $derived(
     canConceal && ((focusedLeft && leftConcealed) || (!focusedLeft && rightConcealed)),
   );
+  // Pinned words and sentences are anchored to the rendered text, so editing
+  // the document would move them out from under the bubbles. A document with
+  // the pin toggle on is therefore read-only until the toggle is turned off.
+  let pinLocked = $derived($glossPinMode || $sentencePinMode);
   let canEditActive = $derived(
     !!editorTab?.filePath
     && !editorTab.filePath.startsWith("paste://")
     && !editorTab.filePath.startsWith("url://")
+    && !pinLocked
   );
   // The left column's own states: the editor, the raw view and split belong to
   // it, and the right column is the read-only one.
@@ -308,16 +315,21 @@
           : $t("toolbar.glossOn"),
   );
 
-  // Pin is a modifier for 词 mode: pre-arm it any time the mode itself is
-  // available, and show why it is disabled otherwise.
-  let glossPinTitle = $derived(
-    !glossLayoutOk
-      ? $t("toolbar.glossDisabledMode")
-      : !glossLanguageOk
-        ? $t("toolbar.glossDisabledLang")
-        : $glossPinMode
-          ? $t("toolbar.glossPinOn")
-          : $t("toolbar.glossPinOff"),
+  // The pin toggle belongs to whichever reading mode is on: 词 pins words, 句
+  // pins sentences. Both write into the document's own cache file, so a tab
+  // without a disk path cannot pin at all.
+  let pinActive = $derived($sentenceMode ? $sentencePinMode : $glossPinMode);
+  let pinAvailable = $derived(canGloss && isDiskCacheablePath(activeTab?.filePath ?? null));
+  let pinTitle = $derived(
+    !isDiskCacheablePath(activeTab?.filePath ?? null)
+      ? $t("toolbar.glossPinNeedsFile")
+      : !glossLayoutOk
+        ? $t("toolbar.glossDisabledMode")
+        : !glossLanguageOk
+          ? $t("toolbar.glossDisabledLang")
+          : pinActive
+            ? $t("toolbar.glossPinOn")
+            : $t("toolbar.glossPinOff"),
   );
 
   // Sentence ("句") mode is 词 one granularity up, so it shares the same gates
@@ -677,7 +689,9 @@
   }
 
   function handleToggleGlossPin(): void {
-    glossPinMode.toggle();
+    if (!pinAvailable) return;
+    if ($sentenceMode) sentencePinMode.toggle();
+    else glossPinMode.toggle();
   }
 
   function handleToggleSentence(): void {
@@ -996,6 +1010,11 @@
       // dead. The Dual segment owns opening and closing the second column now.
       splitMode = false;
       switchMode(rawMode ? "raw" : "viewer");
+      return;
+    }
+    if (pinLocked) {
+      // Pins are anchored to the rendered text; editing would move them.
+      showToast(translate("toolbar.pinLocksEditing"), 4000);
       return;
     }
     if (!canEditActive) return;
@@ -1763,8 +1782,9 @@
       {glossTitle}
       onToggleGloss={handleToggleGloss}
       onOpenGlossSettings={() => (glossarySettingsVisible = true)}
-      glossPinActive={$glossPinMode}
-      {glossPinTitle}
+      glossPinActive={pinActive}
+      canPin={pinAvailable}
+      pinTitle={pinTitle}
       onToggleGlossPin={handleToggleGlossPin}
       canSentence={canSentence}
       sentenceActive={canSentence && $sentenceMode}
@@ -1935,6 +1955,7 @@
           enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
+          pinned: $sentencePinMode,
         }}
         use:parasAction={{
           enabled: $parasMode && leftIsEnglish && glossLayoutOk,
@@ -1981,6 +2002,7 @@
         enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
+        pinned: $sentencePinMode,
       }}
       use:parasAction={{
         enabled: $parasMode && rightIsEnglish && glossLayoutOk,

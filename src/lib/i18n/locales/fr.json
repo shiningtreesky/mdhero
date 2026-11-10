@@ -81,6 +81,8 @@
     "glossPin": "Épingler les définitions",
     "glossPinOn": "Épingler les définitions : activé (cliquer pour désactiver)",
     "glossPinOff": "Épingler les définitions : désactivé (cliquer pour activer)",
+    "glossPinNeedsFile": "Épingler (enregistrez d'abord le fichier)",
+    "pinLocksEditing": "Un document épinglé est en lecture seule ; désactivez l'épinglage pour le modifier",
     "sentence": "句",
     "sentenceOn": "Mode phrase : activé (cliquer pour désactiver)",
     "sentenceOff": "Mode phrase : désactivé (cliquer pour activer)",

@@ -72,6 +72,52 @@ pub fn glossary_store(
     })
 }
 
+/// Replace the pinned list of a reading cache, keeping the glosses and
+/// phonetics already stored there.
+///
+/// Pins describe a reading session (which words or sentences the reader
+/// pinned, in document order) and live beside their cache so reopening the
+/// document restores them. The whole list is replaced: unpinning is a removal,
+/// which a per-entry merge could not express.
+#[tauri::command]
+pub fn glossary_pins_store(path: String, pins: Value) -> Result<(), String> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "Glossary cache lock poisoned".to_string())?;
+    let p = check_cache_path(&path)?;
+    let existing = fs::read_to_string(&p).ok();
+    let mut doc = existing
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| json!({ "version": 2, "glosses": {} }));
+
+    doc["version"] = json!(2);
+    doc["pins"] = normalize_pins(&pins);
+
+    let tmp = p.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(&doc).unwrap_or_default())
+        .map_err(|e| format!("Failed to write {}: {}", tmp.display(), e))?;
+    fs::rename(&tmp, &p).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("Failed to replace {}: {}", p.display(), e)
+    })
+}
+
+/// Keep only object entries: a hand-edited or older file cannot make the
+/// frontend choke on a number where it expects a record.
+fn normalize_pins(pins: &Value) -> Value {
+    let kept: Vec<Value> = pins
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|entry| entry.is_object())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    json!(kept)
+}
+
 /// Merge one entry into the cache JSON, tolerating a missing or damaged file.
 /// Version-1 files (glosses only) are upgraded in place; the `phonetics` map is
 /// only created when the caller actually asked the model for IPA, so sentence

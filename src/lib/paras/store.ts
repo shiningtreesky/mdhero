@@ -286,34 +286,57 @@ export function createParasSession({ filePath, memoryKey }: ParasSessionOptions)
     for (const [index, text] of Object.entries(drafts)) {
       if (text.length > 0) trimmed[index] = text;
     }
-    if (Object.keys(trimmed).length === 0) {
-      try {
-        globalThis.localStorage?.removeItem(draftsKey);
-      } catch {
-        // Storage may be unavailable; nothing to persist either way.
+    if (!diskPath) {
+      if (Object.keys(trimmed).length === 0) {
+        try {
+          globalThis.localStorage?.removeItem(draftsKey);
+        } catch {
+          // Storage may be unavailable; nothing to persist either way.
+        }
+        return;
       }
+      writeStorage(draftsKey, JSON.stringify({ version: 1, drafts: trimmed }));
       return;
     }
-    writeStorage(draftsKey, JSON.stringify({ version: 1, drafts: trimmed }));
+    // With a real file the drafts live beside the confirmed translations, so
+    // reopening the document brings back what was being typed.
+    writeChain = writeChain
+      .then(() => invoke("paras_drafts_store", { path: diskPath, drafts: trimmed }))
+      .then(() => undefined)
+      .catch(() => undefined);
   }
 
   const ready: Promise<void> = (async () => {
     let items: ParaItem[] = [];
+    let storedDrafts: Record<number, string> = {};
     if (diskPath) {
       try {
-        items = parseParasDocument(await invoke<string | null>("paras_read", { path: diskPath }));
+        const text = await invoke<string | null>("paras_read", { path: diskPath });
+        items = parseParasDocument(text);
+        storedDrafts = parseParasDrafts(text);
       } catch {
         items = [];
       }
     } else {
       items = parseParasDocument(readStorage(itemsKey));
     }
-    const drafts = parseParasDrafts(readStorage(draftsKey));
+    // Builds that predate drafts living in the file kept them in localStorage;
+    // adopt them once so nothing typed earlier is lost.
+    const legacy = parseParasDrafts(readStorage(draftsKey));
+    const drafts = diskPath ? { ...legacy, ...storedDrafts } : legacy;
     state.set({
       items: { ...toRecord(items), ...pendingItems },
       drafts: { ...drafts, ...pendingDrafts },
     });
     loaded = true;
+    if (diskPath && Object.keys(legacy).length > 0) {
+      try {
+        globalThis.localStorage?.removeItem(draftsKey);
+      } catch {
+        // Nothing to clean up.
+      }
+      if (Object.keys(storedDrafts).length === 0) writeDrafts();
+    }
   })();
 
   return {

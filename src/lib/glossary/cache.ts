@@ -37,15 +37,31 @@ export function isDiskCacheablePath(filePath: string | null | undefined): boolea
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/**
+ * One pinned entry. Words store `{ word, occurrence }` (the n-th time that word
+ * appears in the document); sentences store `{ key, text, unitIndex, index }`.
+ * Stored beside the glosses so reopening a document can restore the pins.
+ */
+export type StoredPin = Record<string, unknown>;
+
 export interface GlossCacheDocument {
   version: 2;
   glosses: Record<string, string[]>;
   phonetics: Record<string, Phonetic>;
+  pins?: StoredPin[];
 }
 
 export interface ParsedGlossCache {
   glosses: Record<string, string[]>;
   phonetics: Record<string, Phonetic>;
+  pins: StoredPin[];
+}
+
+function parsePins(value: unknown): StoredPin[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is StoredPin => !!entry && typeof entry === "object" && !Array.isArray(entry),
+  );
 }
 
 function parseGlosses(value: unknown): Record<string, string[]> {
@@ -84,16 +100,21 @@ function parsePhonetics(value: unknown): Record<string, Phonetic> {
 export function parseGlossCacheDocument(
   text: string | null | undefined,
 ): ParsedGlossCache {
-  if (!text) return { glosses: {}, phonetics: {} };
+  if (!text) return { glosses: {}, phonetics: {}, pins: [] };
   try {
-    const parsed = JSON.parse(text) as { glosses?: unknown; phonetics?: unknown } | null;
-    if (!parsed || typeof parsed !== "object") return { glosses: {}, phonetics: {} };
+    const parsed = JSON.parse(text) as
+      | { glosses?: unknown; phonetics?: unknown; pins?: unknown }
+      | null;
+    if (!parsed || typeof parsed !== "object") {
+      return { glosses: {}, phonetics: {}, pins: [] };
+    }
     return {
       glosses: parseGlosses(parsed.glosses),
       phonetics: parsePhonetics(parsed.phonetics),
+      pins: parsePins(parsed.pins),
     };
   } catch {
-    return { glosses: {}, phonetics: {} };
+    return { glosses: {}, phonetics: {}, pins: [] };
   }
 }
 
@@ -116,6 +137,10 @@ export interface GlossCache {
   getPhonetics(word: string): Phonetic | undefined;
   /** Fire-and-forget: the in-memory entry is available immediately. */
   set(word: string, glosses: string[], phonetic?: Phonetic): void;
+  /** Pins restored from the file on load; empty until `ready` resolves. */
+  getPins(): StoredPin[];
+  /** Replace the whole pinned list in the file. */
+  setPins(pins: StoredPin[]): void;
 }
 
 export interface GlossCacheOptions {
@@ -130,6 +155,7 @@ export function createGlossCache({ filePath, memoryKey, suffix }: GlossCacheOpti
   const diskPath = isDiskCacheablePath(filePath) ? glossaryCachePath(filePath!, suffix) : null;
   let entries: Record<string, string[]> = {};
   let phonetics: Record<string, Phonetic> = {};
+  let pins: StoredPin[] = [];
   // Words looked up while the file was still loading must survive the merge.
   const pending: Record<string, string[]> = {};
   const pendingPhonetics: Record<string, Phonetic> = {};
@@ -139,29 +165,30 @@ export function createGlossCache({ filePath, memoryKey, suffix }: GlossCacheOpti
   const key = storageKey(diskPath ? diskPath : memoryKey);
 
   const ready: Promise<void> = (async () => {
-    let stored: ParsedGlossCache = { glosses: {}, phonetics: {} };
+    let stored: ParsedGlossCache = { glosses: {}, phonetics: {}, pins: [] };
     if (diskPath) {
       try {
         const text = await invoke<string | null>("glossary_read", { path: diskPath });
         stored = parseGlossCacheDocument(text);
       } catch {
-        stored = { glosses: {}, phonetics: {} };
+        stored = { glosses: {}, phonetics: {}, pins: [] };
       }
     } else {
       try {
         stored = parseGlossCacheDocument(globalThis.localStorage?.getItem(key) ?? null);
       } catch {
-        stored = { glosses: {}, phonetics: {} };
+        stored = { glosses: {}, phonetics: {}, pins: [] };
       }
     }
     entries = { ...stored.glosses, ...pending };
     phonetics = { ...stored.phonetics, ...pendingPhonetics };
+    pins = stored.pins;
     loaded = true;
   })();
 
   function writeMemory(): void {
     try {
-      const doc: GlossCacheDocument = { version: 2, glosses: entries, phonetics };
+      const doc: GlossCacheDocument = { version: 2, glosses: entries, phonetics, pins };
       globalThis.localStorage?.setItem(key, JSON.stringify(doc));
     } catch {
       // Storage may be unavailable; the session still works.
@@ -212,6 +239,21 @@ export function createGlossCache({ filePath, memoryKey, suffix }: GlossCacheOpti
         .then(() => undefined)
         .catch(() => undefined);
     },
+    getPins() {
+      return pins;
+    },
+    setPins(next) {
+      pins = next;
+      if (!diskPath) {
+        writeMemory();
+        return;
+      }
+      // The whole list replaces the file's: unpinning has to be a removal.
+      writeChain = writeChain
+        .then(() => invoke("glossary_pins_store", { path: diskPath, pins: next }))
+        .then(() => undefined)
+        .catch(() => undefined);
+    },
   };
 }
 
@@ -219,9 +261,11 @@ export function createGlossCache({ filePath, memoryKey, suffix }: GlossCacheOpti
 export function createMemoryGlossCache(
   initial: Record<string, string[]> = {},
   initialPhonetics: Record<string, Phonetic> = {},
+  initialPins: StoredPin[] = [],
 ): GlossCache {
   const entries: Record<string, string[]> = { ...initial };
   const phonetics: Record<string, Phonetic> = { ...initialPhonetics };
+  let pins: StoredPin[] = [...initialPins];
   return {
     persisted: false,
     ready: Promise.resolve(),
@@ -235,6 +279,10 @@ export function createMemoryGlossCache(
           us: cleanPhonetic(phonetic.us),
         };
       }
+    },
+    getPins: () => pins,
+    setPins: (next) => {
+      pins = next;
     },
   };
 }

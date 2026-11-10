@@ -81,6 +81,8 @@
     "glossPin": "Definitionen anheften",
     "glossPinOn": "Definitionen anheften: an (klicken zum Ausschalten)",
     "glossPinOff": "Definitionen anheften: aus (klicken zum Einschalten)",
+    "glossPinNeedsFile": "Anheften (Datei zuerst speichern)",
+    "pinLocksEditing": "Angeheftete Dokumente sind schreibgeschützt. Anheften ausschalten, um zu bearbeiten",
     "sentence": "句",
     "sentenceOn": "Satzmodus: an (klicken zum Ausschalten)",
     "sentenceOff": "Satzmodus: aus (klicken zum Einschalten)",
