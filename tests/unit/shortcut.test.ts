@@ -45,14 +45,15 @@ describe("shortcut matching", () => {
 });
 
 describe("reading mode shortcuts", () => {
-  it("maps main-row 1/2/3 to 段/句/词", () => {
+  it("maps main-row 1/2/3/4 to 段/句/词/音", () => {
     expect(readingModeForCode("Digit1")).toBe("paras");
     expect(readingModeForCode("Digit2")).toBe("sentence");
     expect(readingModeForCode("Digit3")).toBe("gloss");
+    expect(readingModeForCode("Digit4")).toBe("phonetic");
   });
 
   it("ignores the numpad and every other key", () => {
-    for (const code of ["Numpad1", "Numpad2", "Numpad3", "Digit4", "Digit0", "KeyA", ""]) {
+    for (const code of ["Numpad1", "Numpad2", "Numpad3", "Numpad4", "Digit5", "Digit0", "KeyA", ""]) {
       expect(readingModeForCode(code)).toBeNull();
     }
   });

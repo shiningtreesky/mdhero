@@ -45,10 +45,17 @@ async function lookupPhonetic(
  *  endpoint is not blocked by CSP/CORS, and the model reply is cleaned down to
  *  at most two short Chinese meanings before it can reach the bubble. When the
  *  音标 option is on, a second request fetches British/American IPA in parallel;
- *  either request can fail without taking the other one down. */
-export async function lookupGloss(word: string): Promise<GlossLookup> {
+ *  either request can fail without taking the other one down.
+ *
+ *  `options.phonetic` forces the IPA request even when the 音标 setting is off:
+ *  词 mode pre-fetches it so switching to the 音 view is instant. */
+export async function lookupGloss(
+  word: string,
+  options: { phonetic?: boolean } = {},
+): Promise<GlossLookup> {
   const settings = get(glossarySettings);
-  const phoneticTask = settings.showPhonetic
+  const wantsPhonetic = options.phonetic ?? settings.showPhonetic;
+  const phoneticTask = wantsPhonetic
     ? lookupPhonetic(word, settings)
     : Promise.resolve(undefined);
 

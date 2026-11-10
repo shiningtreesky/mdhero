@@ -89,6 +89,7 @@
   import { glossaryMode } from "$lib/stores/glossaryMode";
   import { glossPinMode } from "$lib/stores/glossPin";
   import { sentencePinMode } from "$lib/stores/sentencePin";
+  import { wordPhoneticView } from "$lib/stores/wordPhonetic";
   import { isDiskCacheablePath } from "$lib/glossary/cache";
   import { glossary } from "$lib/glossary/action";
   import { sentenceMode } from "$lib/stores/sentenceMode";
@@ -320,6 +321,30 @@
   // The pin toggle belongs to whichever reading mode is on: 词 pins words, 句
   // pins sentences. Both write into the document's own cache file, so a tab
   // without a disk path cannot pin at all.
+  // 音: the 词 bubbles show IPA instead of the Chinese meaning. Unlike the pins
+  // it also works on plain hover, so it only needs the mode to be available.
+  let phoneticViewActive = $derived($glossaryMode && $wordPhoneticView);
+  let phoneticTitle = $derived(
+    !glossLayoutOk
+      ? $t("toolbar.glossDisabledMode")
+      : !glossLanguageOk
+        ? $t("toolbar.glossDisabledLang")
+        : phoneticViewActive
+          ? $t("toolbar.phoneticOn")
+          : $t("toolbar.phoneticOff"),
+  );
+
+  function handleTogglePhonetic(): void {
+    if (!canGloss) return;
+    if (!$glossaryMode) {
+      // `4` opens 词 mode straight into the 音 view.
+      handleToggleGloss();
+      wordPhoneticView.set(true);
+      return;
+    }
+    wordPhoneticView.toggle();
+  }
+
   let pinActive = $derived($sentenceMode ? $sentencePinMode : $glossPinMode);
   let pinAvailable = $derived(canGloss && isDiskCacheablePath(activeTab?.filePath ?? null));
   let pinTitle = $derived(
@@ -1588,9 +1613,18 @@
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat) return;
       if (isInputFocused() || anyDialogVisible || !canGloss) return;
       e.preventDefault();
+      if (readingMode === "phonetic") {
+        handleTogglePhonetic();
+        return;
+      }
+      if (readingMode === "gloss") {
+        // `3` while already in 词 mode leaves the 音 view but keeps the mode.
+        if ($glossaryMode && $wordPhoneticView) wordPhoneticView.set(false);
+        else if (!$glossaryMode) handleToggleGloss();
+        return;
+      }
       if (readingMode === "paras" && !$parasMode) handleToggleParas();
       else if (readingMode === "sentence" && !$sentenceMode) handleToggleSentence();
-      else if (readingMode === "gloss" && !$glossaryMode) handleToggleGloss();
       return;
     }
 
@@ -1789,6 +1823,10 @@
       canPin={pinAvailable}
       pinTitle={pinTitle}
       onToggleGlossPin={handleToggleGlossPin}
+      canPhonetic={canGloss}
+      phoneticActive={phoneticViewActive}
+      {phoneticTitle}
+      onTogglePhonetic={handleTogglePhonetic}
       canSentence={canSentence}
       sentenceActive={canSentence && $sentenceMode}
       {sentenceTitle}
@@ -1958,6 +1996,7 @@
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
           pinned: $glossPinMode,
+          phoneticView: $wordPhoneticView,
         }}
         use:sentenceAction={{
           enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
@@ -2011,6 +2050,7 @@
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
         pinned: $glossPinMode,
+        phoneticView: $wordPhoneticView,
       }}
       use:sentenceAction={{
         enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,

@@ -65,6 +65,11 @@
     canPin = false,
     pinTitle = "",
     onToggleGlossPin = () => {},
+    /** 音: 词 bubbles show IPA instead of the meaning. */
+    canPhonetic = false,
+    phoneticActive = false,
+    phoneticTitle = "",
+    onTogglePhonetic = () => {},
     /** Sentence reading ("句") mode: same interactions as 词, one sentence at a time. */
     canSentence = false,
     sentenceActive = false,
@@ -136,6 +141,11 @@
     canPin?: boolean;
     pinTitle?: string;
     onToggleGlossPin?: () => void;
+    /** 音: 词 bubbles show IPA instead of the meaning. */
+    canPhonetic?: boolean;
+    phoneticActive?: boolean;
+    phoneticTitle?: string;
+    onTogglePhonetic?: () => void;
     canSentence?: boolean;
     sentenceActive?: boolean;
     sentenceTitle?: string;
@@ -660,6 +670,18 @@
       onpointercancel={cancelGlossPress}
       oncontextmenu={handleGlossContextMenu}
     >{$t('toolbar.gloss')}</button>
+
+    <!-- 音: the same 词 bubbles, showing IPA instead of the meaning. `4` flips
+         it; the IPA is pre-fetched even when the 音标 setting is off. -->
+    <button
+      class="btn gloss-btn"
+      class:active={phoneticActive}
+      disabled={!canPhonetic}
+      title={phoneticTitle}
+      aria-label={$t('toolbar.phonetic')}
+      aria-pressed={phoneticActive}
+      onclick={onTogglePhonetic}
+    >{$t('toolbar.phonetic')}</button>
 
     <!-- Pin: with 词 mode on, clicked words keep their highlight and gloss
          bubble until Ctrl/Cmd+click removes them. ESC hides the bubbles but

@@ -79,6 +79,8 @@ export interface GlossaryParams {
   filePath: string | null;
   /** Keep clicked words' glosses on screen instead of replacing one bubble. */
   pinned?: boolean;
+  /** Show IPA instead of the Chinese meaning (the 音 view). */
+  phoneticView?: boolean;
 }
 
 interface WordHit {
@@ -111,6 +113,7 @@ interface WordPosition {
 interface Browser {
   destroy(): void;
   setPinned(on: boolean): void;
+  setPhoneticView(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -202,9 +205,14 @@ export function createGlossaryBrowser(
   let anchorRange: Range | null = null;
   let anchorNode: Text | null = null;
   let anchorStart = -1;
+  /** Last rendered hover bubble contents, so the 音 view can repaint it. */
+  let anchorGloss: string | null = null;
+  let anchorPhonetic: Phonetic | undefined;
   let requestToken = 0;
   let rafPending = false;
   let pinned = params.pinned === true;
+  /** 音 view: bubbles show IPA instead of the gloss. */
+  let phoneticView = params.phoneticView === true;
   /** True while restoring saved pins: those are already in the file. */
   let restoring = false;
   const pinnedEntries: PinnedEntry[] = [];
@@ -233,30 +241,42 @@ export function createGlossaryBrowser(
     anchorRange = null;
     anchorNode = null;
     anchorStart = -1;
+    anchorGloss = null;
+    anchorPhonetic = undefined;
     bubble.style.display = "none";
     bubble.textContent = "";
   }
 
-  /** IPA on its own line above the meaning, only when the 音标 option is on. */
+  /** IPA on its own line above the meaning, or on its own in the 音 view. */
   function renderBubbleInto(target: HTMLElement, gloss: string, phonetic?: Phonetic): void {
     target.textContent = "";
-    if (phonetic) {
-      const settings = get(glossarySettings);
-      if (settings.showPhonetic) {
-        const line = formatPhonetic(
+    const settings = get(glossarySettings);
+    const phoneticLine = phonetic
+      ? formatPhonetic(
           phonetic,
           settings.phoneticUk,
           settings.phoneticUs,
           translate("glossary.phoneticUkShort"),
           translate("glossary.phoneticUsShort"),
-        );
-        if (line) {
-          const el = document.createElement("div");
-          el.className = `${BUBBLE_CLASS}-phonetic`;
-          el.textContent = line;
-          target.appendChild(el);
-        }
+        )
+      : "";
+    if (phoneticView) {
+      // 音 view: pronunciation only. "…" while the IPA request is in flight.
+      if (phoneticLine) {
+        const el = document.createElement("div");
+        el.className = `${BUBBLE_CLASS}-phonetic`;
+        el.textContent = phoneticLine;
+        target.appendChild(el);
+      } else {
+        target.textContent = "…";
       }
+      return;
+    }
+    if (settings.showPhonetic && phoneticLine) {
+      const el = document.createElement("div");
+      el.className = `${BUBBLE_CLASS}-phonetic`;
+      el.textContent = phoneticLine;
+      target.appendChild(el);
     }
     const meanings = document.createElement("div");
     meanings.textContent = gloss;
@@ -325,12 +345,14 @@ export function createGlossaryBrowser(
     if (!key) return;
     if (destroyed || !isCurrent()) return;
 
-    const wantsPhonetic = get(glossarySettings).showPhonetic;
+    // 词 mode always fetches IPA, even when the 音标 option is off: the 音 view
+    // must have it ready the moment the reader flips the switch.
+    const wantsPhonetic = true;
 
     const cached = cache.get(key);
     if (cached && cached.length > 0) {
       const cachedPhonetic = cache.getPhonetics(key);
-      if (!wantsPhonetic || cachedPhonetic !== undefined) {
+      if (cachedPhonetic !== undefined) {
         render(cached.join(" / "), cachedPhonetic);
         return;
       }
@@ -344,14 +366,14 @@ export function createGlossaryBrowser(
     const late = cache.get(key);
     const latePhonetic = cache.getPhonetics(key);
     if (late && late.length > 0) {
-      if (!wantsPhonetic || latePhonetic !== undefined) {
+      if (latePhonetic !== undefined) {
         render(late.join(" / "), latePhonetic);
         return;
       }
       render(late.join(" / "), undefined);
     }
 
-    const result = await lookupGloss(raw);
+    const result = await lookupGloss(raw, { phonetic: wantsPhonetic });
     if (destroyed || !isCurrent()) return;
     if (result.ok) {
       render(result.text, result.phonetic);
@@ -378,6 +400,8 @@ export function createGlossaryBrowser(
     anchorRange = range;
     anchorNode = node;
     anchorStart = token.start;
+    anchorGloss = null;
+    anchorPhonetic = undefined;
     bubble.textContent = "…";
     position();
 
@@ -386,11 +410,28 @@ export function createGlossaryBrowser(
       token.word,
       (gloss, phonetic) => {
         if (request !== requestToken) return;
+        anchorGloss = gloss;
+        anchorPhonetic = phonetic;
         renderBubbleInto(bubble, gloss, phonetic);
         position();
       },
       () => request === requestToken,
     );
+  }
+
+  /** Flip the 音 view and repaint every bubble from the cache. */
+  function setPhoneticView(on: boolean): void {
+    if (phoneticView === on) return;
+    phoneticView = on;
+    for (const entry of pinnedEntries) {
+      const key = normalizeWord(entry.token.word);
+      const gloss = cache.get(key)?.join(" / ") ?? "";
+      renderBubbleInto(entry.bubble, gloss || "…", cache.getPhonetics(key));
+    }
+    if (anchorGloss !== null) {
+      renderBubbleInto(bubble, anchorGloss, anchorPhonetic);
+    }
+    positionPinned();
   }
 
   function findPinned(node: Text, start: number): PinnedEntry | undefined {
@@ -771,6 +812,9 @@ export function createGlossaryBrowser(
     setPinned(on: boolean) {
       setPinned(on);
     },
+    setPhoneticView(on: boolean) {
+      setPhoneticView(on);
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -827,6 +871,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
         next.tabId !== current.tabId ||
         next.filePath !== current.filePath;
       const pinChanged = !!next.pinned !== !!current.pinned;
+      const viewChanged = !!next.phoneticView !== !!current.phoneticView;
       current = next;
       if (changed) {
         stop();
@@ -834,6 +879,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
         return;
       }
       if (pinChanged) browser?.setPinned(!!next.pinned);
+      if (viewChanged) browser?.setPhoneticView(!!next.phoneticView);
     },
     destroy() {
       stop();
