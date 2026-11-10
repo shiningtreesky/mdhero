@@ -62,6 +62,82 @@ pub fn paras_replace(path: String, items: Vec<Value>) -> Result<(), String> {
     write_atomic(&p, &doc)
 }
 
+/// Store the paragraph-reading state (whole-paragraph translations and the
+/// paragraphs the reader pinned) beside the answer-mode items.
+///
+/// Reading ("段" without the answer mode) is a different workflow from grading:
+/// it only needs a translation per paragraph and a pinned list, and it must
+/// survive a close just like the other reading modes. Keeping it in the same
+/// `.paras.json` means one file per document still holds every paragraph edit.
+#[tauri::command]
+pub fn paras_reading_store(path: String, reading: Value) -> Result<(), String> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "Paragraph cache lock poisoned".to_string())?;
+    let p = check_json_path(&path)?;
+    let existing = read_optional(&p).unwrap_or(None);
+    let mut doc = existing
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| json!({ "version": 1, "items": [] }));
+
+    if !doc["items"].is_array() {
+        doc["items"] = json!([]);
+    }
+    doc["version"] = json!(1);
+    doc["reading"] = normalize_reading(&reading);
+    write_atomic(&p, &doc)
+}
+
+/// Keep only the two maps the reader uses: `glosses` of cached translations
+/// and `pins` of `{index, hash, text}` records.
+fn normalize_reading(reading: &Value) -> Value {
+    let glosses = reading
+        .get("glosses")
+        .and_then(|value| value.as_object())
+        .map(|map| {
+            let mut kept = serde_json::Map::new();
+            for (key, value) in map {
+                let Some(items) = value.as_array() else { continue };
+                let texts: Vec<Value> = items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .filter(|text| !text.is_empty())
+                    .map(|text| json!(text))
+                    .collect();
+                if !texts.is_empty() {
+                    kept.insert(key.clone(), Value::Array(texts));
+                }
+            }
+            Value::Object(kept)
+        })
+        .unwrap_or_else(|| json!({}));
+
+    let pins = reading
+        .get("pins")
+        .and_then(|value| value.as_array())
+        .map(|list| {
+            let kept: Vec<Value> = list
+                .iter()
+                .filter_map(|item| {
+                    let index = item.get("index").and_then(|value| value.as_i64())?;
+                    if index < 0 {
+                        return None;
+                    }
+                    Some(json!({
+                        "index": index,
+                        "hash": item.get("hash").and_then(|value| value.as_str()).unwrap_or(""),
+                        "text": item.get("text").and_then(|value| value.as_str()).unwrap_or(""),
+                    }))
+                })
+                .collect();
+            Value::Array(kept)
+        })
+        .unwrap_or_else(|| json!([]));
+
+    json!({ "glosses": glosses, "pins": pins })
+}
+
 /// Store the unconfirmed drafts beside the confirmed translations.
 ///
 /// Drafts used to live in localStorage only; keeping them in the same

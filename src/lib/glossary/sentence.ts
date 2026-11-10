@@ -12,8 +12,6 @@ import { lookupSentence } from "./lookup";
 import {
   anchorRect,
   caretAtPoint,
-  placeBubble,
-  placeBubbleAt,
   supportsHighlight,
   type CaretHit,
 } from "./shared";
@@ -55,10 +53,29 @@ export interface SentenceParams {
 /** A sentence whose translation stays on screen, like a pinned word. */
 interface PinnedSentence {
   entry: SentenceEntry;
-  bubble: HTMLDivElement;
+  root: HTMLDivElement;
+  text: HTMLSpanElement;
   hiddenByUser: boolean;
   /** Guards the async lookup after this sentence is unpinned or destroyed. */
   requestToken: number;
+}
+
+/** A sentence bubble: the fixed container that carries the stepped layout, and
+ *  the inline span that carries the backing so each wrapped line is covered on
+ *  its own. */
+interface SentenceBubble {
+  root: HTMLDivElement;
+  text: HTMLSpanElement;
+}
+
+function createSentenceBubble(): SentenceBubble {
+  const root = document.createElement("div");
+  root.className = BUBBLE_CLASS;
+  root.style.display = "none";
+  const text = document.createElement("span");
+  root.appendChild(text);
+  document.body.appendChild(root);
+  return { root, text };
 }
 
 /** Pinned ranges of every mounted pane, keyed by owner, so one pane rebuilding
@@ -89,28 +106,46 @@ function injectStyles(): void {
 ::highlight(${HOVER_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
 ::highlight(${PINNED_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
 .${SENTENCE_CLASS}.${HOVER_CLASS} { background-color: rgba(234, 179, 8, 0.18); border-radius: 3px; }
+/* The translation is laid out as a "step": the first line starts under the
+   sentence, later lines return to the column's left edge. The backing lives on
+   the inline span so it covers only the text — a block background would cover
+   the empty left part of the first line and hide the words underneath it.
+   Type metrics match the 词 bubble exactly. */
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
-  padding: 3px 6px;
-  border-radius: 6px;
+  pointer-events: none;
+  /* The container sits on <body>, so without these it would inherit the page's
+     larger type metrics and grow taller than the text it holds — a bubble a few
+     pixels too tall then covers the line underneath. */
+  font-size: 11px;
+  line-height: 1.25;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* left / top / width / text-indent are written while placing. */
+}
+.${BUBBLE_CLASS} > span {
+  display: inline;
+  padding: 1px 2px;
+  border-radius: 3px;
   border: 1px solid #e5e5ea;
   background: #fff;
   color: #1c1c1e;
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.25;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  white-space: normal;
   overflow-wrap: anywhere;
-  max-width: min(420px, calc(100vw - 16px));
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
-  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  /* Each line sits at the top of its line box, so it lands on the upper edge of
+     the gap under the English line rather than floating in the middle. */
+  vertical-align: top;
 }
-html.dark .${BUBBLE_CLASS} {
+html.dark .${BUBBLE_CLASS} > span {
   background: #2c2c2e;
   color: #e5e5e7;
   border-color: #3a3a3c;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 `;
   document.head.appendChild(style);
@@ -158,10 +193,7 @@ export function createSentenceBrowser(
     showToast(translate("glossary.sentenceMemoryOnly"));
   }
 
-  const bubble = document.createElement("div");
-  bubble.className = BUBBLE_CLASS;
-  bubble.style.display = "none";
-  document.body.appendChild(bubble);
+  const hoverBubble = createSentenceBubble();
 
   const units = collectParagraphs(article);
   const unitIndex = new Map<HTMLElement, number>();
@@ -244,13 +276,106 @@ export function createSentenceBrowser(
     anchorEntry = null;
     anchorRange = null;
     anchorNode = null;
-    bubble.style.display = "none";
-    bubble.textContent = "";
+    hoverBubble.root.style.display = "none";
+    hoverBubble.text.textContent = "";
+  }
+
+  /** The reading column's content box, in viewport coordinates. */
+  function readingBox(): { left: number; width: number } {
+    const style = getComputedStyle(article);
+    const padLeft = parseFloat(style.paddingLeft) || 0;
+    const padRight = parseFloat(style.paddingRight) || 0;
+    const rect = article.getBoundingClientRect();
+    return {
+      left: rect.left + padLeft,
+      width: Math.max(240, article.clientWidth - padLeft - padRight),
+    };
+  }
+
+  /**
+   * Lay the translation out as a step: the first line starts under the
+   * sentence's first word and runs to the column's right edge, and the rest
+   * wraps onto the next line at the column's left edge. The backing lives on
+   * the inline span, so the empty left part of the first line covers nothing.
+   */
+  function placeSentenceBubble(
+    root: HTMLElement,
+    rect: DOMRect,
+    occupied: DOMRect[] = [],
+  ): void {
+    const box = readingBox();
+    const indent = Math.max(0, Math.min(rect.left - box.left, box.width - 1));
+    // The article's leading, reused as the bubble's line box height: the second
+    // translation line then lands in the next gap instead of on the English
+    // line below the first one.
+    const lineHeight = parseFloat(getComputedStyle(article).lineHeight) || 20;
+    root.style.left = `${box.left}px`;
+    root.style.width = `${box.width}px`;
+    root.style.textIndent = `${indent}px`;
+    root.style.lineHeight = `${lineHeight}px`;
+    root.style.display = "block";
+    root.style.visibility = "hidden";
+
+    const height = root.offsetHeight;
+    // No gap: the translation's top edge touches the English line's bottom.
+    let top = rect.bottom;
+    if (top + height > window.innerHeight - 6) top = rect.top - height;
+    if (top < 4) top = 4;
+
+    if (occupied.length > 0) {
+      const gap = 3;
+      const overlaps = (candidate: number): DOMRect | undefined => {
+        const right = box.left + box.width;
+        const bottom = candidate + height;
+        return occupied.find(
+          (other) =>
+            box.left < other.right + gap &&
+            right > other.left - gap &&
+            candidate < other.bottom + gap &&
+            bottom > other.top - gap,
+        );
+      };
+      let hit = overlaps(top);
+      for (let guard = 0; hit && guard < 20; guard++) {
+        const below = hit.bottom + gap;
+        const above = hit.top - height - gap;
+        if (below + height <= window.innerHeight - 6) top = below;
+        else if (above >= 4) top = above;
+        else break;
+        hit = overlaps(top);
+      }
+    }
+
+    root.style.top = `${Math.max(4, top)}px`;
+    // The inline span carries its own leading, so with `vertical-align: top` it
+    // can sit a couple of pixels above the container's top edge. Measure once
+    // and pull the container back so the painted text starts exactly at the
+    // upper edge of the gap.
+    const span = root.firstElementChild as HTMLElement | null;
+    if (span) {
+      const placed = Math.max(4, top);
+      const drift = placed - span.getBoundingClientRect().top;
+      if (Math.abs(drift) > 0.5) root.style.top = `${placed + drift}px`;
+    }
+    root.style.visibility = "visible";
+  }
+
+  /** The box of the sentence's *first* line.
+   *
+   *  Bubbles hang under the line a sentence starts on, not under its last line:
+   *  a wrapped sentence would otherwise push its note one line lower for every
+   *  line it wraps, so the translation drifts away from the words it explains.
+   *  `getClientRects()[0]` is that first line, and its left edge is the first
+   *  word — both the anchor and the step's indent come from it. */
+  function firstLineRect(range: Range): DOMRect {
+    const rects = range.getClientRects();
+    return rects.length > 0 ? rects[0] : range.getBoundingClientRect();
   }
 
   function position(): void {
     if (!anchorRange) return;
-    placeBubble(bubble, anchorRange);
+    const line = anchorEntry?.range ? firstLineRect(anchorEntry.range) : anchorRect(anchorRange);
+    placeSentenceBubble(hoverBubble.root, line);
   }
 
   function schedulePosition(): void {
@@ -266,14 +391,16 @@ export function createSentenceBrowser(
   /** Fill a bubble with the sentence's translation, cache first, model second.
    *  Shared by the hover bubble and every pinned one. */
   async function fillBubble(
-    target: HTMLElement,
+    target: SentenceBubble,
     entry: SentenceEntry,
     isCurrent: () => boolean,
   ): Promise<void> {
     if (!entry.key) return;
+    target.root.style.display = "block";
+    target.text.textContent = "…";
     const cached = cache.get(entry.key);
     if (cached && cached.length > 0) {
-      target.textContent = cached.join(" ");
+      target.text.textContent = cached.join(" ");
       return;
     }
 
@@ -281,17 +408,17 @@ export function createSentenceBrowser(
     if (destroyed || !isCurrent()) return;
     const late = cache.get(entry.key);
     if (late && late.length > 0) {
-      target.textContent = late.join(" ");
+      target.text.textContent = late.join(" ");
       return;
     }
 
     const result = await lookupSentence(entry.key);
     if (destroyed || !isCurrent()) return;
     if (result.ok) {
-      target.textContent = result.text;
+      target.text.textContent = result.text;
       cache.set(entry.key, [result.text]);
     } else {
-      target.textContent = translate("glossary.sentenceFailed");
+      target.text.textContent = translate("glossary.sentenceFailed");
     }
   }
 
@@ -313,11 +440,12 @@ export function createSentenceBrowser(
     anchorEntry = entry;
     anchorRange = caretAnchorRange(caret);
     anchorNode = caret.node;
-    bubble.textContent = "…";
+    hoverBubble.root.style.display = "block";
+    hoverBubble.text.textContent = "…";
     position();
 
     const request = ++requestToken;
-    await fillBubble(bubble, entry, () => !destroyed && request === requestToken);
+    await fillBubble(hoverBubble, entry, () => !destroyed && request === requestToken);
     if (destroyed || request !== requestToken) return;
     position();
   }
@@ -345,25 +473,54 @@ export function createSentenceBrowser(
     rebuildPinnedHighlight();
   }
 
-  /** Keep every pinned bubble glued to its sentence, avoiding overlaps. */
+  /** The painted rectangles of a bubble, one per text line. A single union rect
+   *  would span the whole column as soon as the first line is indented, and
+   *  would then collide with neighbours it never actually touches. */
+  function bubbleRects(root: HTMLElement): DOMRect[] {
+    const span = root.firstElementChild as HTMLElement | null;
+    if (!span) return [root.getBoundingClientRect()];
+    const rects = span.getClientRects();
+    return rects.length > 0 ? Array.from(rects) : [span.getBoundingClientRect()];
+  }
+
+  function lineOverlaps(line: DOMRect, placed: DOMRect[], gap = 3): boolean {
+    return placed.some(
+      (other) =>
+        line.left < other.right + gap &&
+        line.right > other.left - gap &&
+        line.top < other.bottom + gap &&
+        line.bottom > other.top - gap,
+    );
+  }
+
+  /** Keep every pinned bubble glued to its own sentence. A bubble whose text
+   *  would land on another bubble's text is nudged down one line at a time. */
   function positionPinned(): void {
-    const occupied: DOMRect[] = [];
+    const placed: DOMRect[] = [];
+    const lineHeight = parseFloat(getComputedStyle(article).lineHeight) || 20;
     for (const pin of pinnedSentences.values()) {
       if (pin.hiddenByUser || !pin.entry.range) {
-        pin.bubble.style.display = "none";
+        pin.root.style.display = "none";
         continue;
       }
-      const rect = anchorRect(pin.entry.range);
+      const line = firstLineRect(pin.entry.range);
       if (
-        (rect.width === 0 && rect.height === 0) ||
-        rect.bottom < 0 ||
-        rect.top > window.innerHeight
+        (line.width === 0 && line.height === 0) ||
+        line.bottom < 0 ||
+        line.top > window.innerHeight
       ) {
-        pin.bubble.style.display = "none";
+        pin.root.style.display = "none";
         continue;
       }
-      placeBubbleAt(pin.bubble, rect, occupied);
-      occupied.push(pin.bubble.getBoundingClientRect());
+      placeSentenceBubble(pin.root, line);
+      let rects = bubbleRects(pin.root);
+      for (let guard = 0; guard < 12 && rects.some((rect) => lineOverlaps(rect, placed)); guard++) {
+        const top = parseFloat(pin.root.style.top || "0") + Math.round(lineHeight);
+        if (top + pin.root.offsetHeight > window.innerHeight - 4) break;
+        pin.root.style.top = `${top}px`;
+        rects = bubbleRects(pin.root);
+      }
+      placed.push(...rects);
     }
   }
 
@@ -385,17 +542,16 @@ export function createSentenceBrowser(
     const existing = pinnedSentences.get(entry.key);
     if (existing) {
       existing.hiddenByUser = false;
-      existing.bubble.style.display = "block";
+      existing.root.style.display = "block";
       positionPinned();
       return;
     }
 
-    const target = document.createElement("div");
-    target.className = BUBBLE_CLASS;
-    document.body.appendChild(target);
+    const target = createSentenceBubble();
     const pin: PinnedSentence = {
       entry,
-      bubble: target,
+      root: target.root,
+      text: target.text,
       hiddenByUser: false,
       requestToken: 0,
     };
@@ -415,7 +571,7 @@ export function createSentenceBrowser(
     const pin = pinnedSentences.get(key);
     if (!pin) return;
     pin.requestToken++;
-    pin.bubble.remove();
+    pin.root.remove();
     pinnedSentences.delete(key);
     refreshPinnedRanges();
     persistPins();
@@ -424,7 +580,7 @@ export function createSentenceBrowser(
   function clearPinnedSentences(): void {
     for (const pin of pinnedSentences.values()) {
       pin.requestToken++;
-      pin.bubble.remove();
+      pin.root.remove();
     }
     pinnedSentences.clear();
     refreshPinnedRanges();
@@ -547,7 +703,7 @@ export function createSentenceBrowser(
 
   /** Escape dismisses the open sentence bubble so it stops covering the text. */
   function onKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || bubble.style.display === "none") return;
+    if (event.key !== "Escape" || hoverBubble.root.style.display === "none") return;
     event.preventDefault();
     event.stopPropagation();
     hideBubble();
@@ -727,7 +883,7 @@ export function createSentenceBrowser(
       pinnedRanges.delete(pinnedOwner);
       rebuildPinnedHighlight();
       highlightRegistry?.delete(HOVER_NAME);
-      bubble.remove();
+      hoverBubble.root.remove();
     },
   };
 }

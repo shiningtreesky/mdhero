@@ -125,8 +125,8 @@ function injectStyles(): void {
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
-  padding: 2px 6px;
-  border-radius: 5px;
+  padding: 1px 2px;
+  border-radius: 3px;
   border: 1px solid #e5e5ea;
   background: #fff;
   color: #1c1c1e;

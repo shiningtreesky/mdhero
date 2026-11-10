@@ -70,6 +70,13 @@
     sentenceActive = false,
     sentenceTitle = "",
     onToggleSentence = () => {},
+    /** 段: answer mode (cards + grading) vs reading whole paragraphs. */
+    parasAnswerMode = false,
+    parasSpeak = false,
+    onToggleParasAnswer = (_on: boolean) => {},
+    onToggleParasSpeak = (_on: boolean) => {},
+    /** Line spacing is adjustable while 词/句 pins or 段 reading are active. */
+    lineSpacingEnabled = false,
     /** Paragraph reading ("段") mode: mutually exclusive with 句 and 词. */
     canParas = false,
     parasActive = false,
@@ -133,6 +140,13 @@
     sentenceActive?: boolean;
     sentenceTitle?: string;
     onToggleSentence?: () => void;
+    /** 段: answer mode (cards + grading) vs reading whole paragraphs. */
+    parasAnswerMode?: boolean;
+    parasSpeak?: boolean;
+    onToggleParasAnswer?: (on: boolean) => void;
+    onToggleParasSpeak?: (on: boolean) => void;
+    /** Line spacing is adjustable while 词/句 pins or 段 reading are active. */
+    lineSpacingEnabled?: boolean;
     canParas?: boolean;
     parasActive?: boolean;
     parasTitle?: string;
@@ -158,6 +172,8 @@
   let showSpeedPopover = $state(false);
   /** Right-click menu of the read-aloud button ("highlight the spoken sentence"). */
   let showSpeechMenu = $state(false);
+  /** Right-click menu of the 段 button ("回答模式" / "朗读"). */
+  let showParasMenu = $state(false);
   let copyFeedback = $state("");
 
   let leftConcealTitle = $derived(
@@ -194,6 +210,7 @@
     showCopyMenu = false;
     showSpeedPopover = false;
     showSpeechMenu = false;
+    showParasMenu = false;
   }
 
   function toggleReaderControls() {
@@ -230,16 +247,6 @@
 
   function handleSpeechHighlightChange(event: Event) {
     setTtsHighlight((event.currentTarget as HTMLInputElement).checked);
-  }
-
-  // The menu is opened by right-click, which browsers do not follow with a
-  // page click, so a pointerdown anywhere else dismisses it. Clicks inside the
-  // group (the button itself, the checkbox) keep it open.
-  function handleOutsidePointerDown(event: PointerEvent) {
-    if (!showSpeechMenu) return;
-    const target = event.target as Element | null;
-    if (target?.closest?.(".speech-group")) return;
-    showSpeechMenu = false;
   }
 
   function handleSpeedInput(event: Event) {
@@ -346,9 +353,22 @@
 
   function handleParasContextMenu(event: MouseEvent) {
     event.preventDefault();
+    event.stopPropagation();
     cancelParasPress();
     parasLongPressed = false;
-    onOpenGlossSettings();
+    const next = !showParasMenu;
+    closeAll();
+    showParasMenu = next;
+  }
+
+  /** Clicks inside the menu keep it open; anything else closes it. */
+  function handleOutsidePointerDown(event: PointerEvent) {
+    if (!showSpeechMenu && !showParasMenu) return;
+    const target = event.target as Element | null;
+    if (showSpeechMenu && target?.closest?.(".speech-group")) return;
+    if (showParasMenu && target?.closest?.(".paras-group")) return;
+    showSpeechMenu = false;
+    showParasMenu = false;
   }
 
   // Same gesture on 对比提交: short press submits, long press / right-click
@@ -397,11 +417,11 @@
   /** Leading of the reading panes, shared with the Aa panel's slider. Only
    *  meaningful while words or sentences are pinned: opening the lines up is
    *  how a reader gets the text out from behind a pinned gloss. */
-  let lineSpacingDisabled = $derived(!canSpeak || !glossPinActive);
+  let lineSpacingDisabled = $derived(!canSpeak || !lineSpacingEnabled);
   let lineSpacingTitle = $derived(
     !canSpeak
       ? $t("toolbar.lineSpacingNoFile")
-      : !glossPinActive
+      : !lineSpacingEnabled
         ? $t("toolbar.lineSpacingNeedsPin")
         : $t("toolbar.lineSpacing"),
   );
@@ -557,21 +577,55 @@
       oncontextmenu={handleScoreContextMenu}
     >{#if scoring}{$t('toolbar.grading')}{:else}{$t('toolbar.score')}{/if}</button>
 
-    <!-- Paragraph ("段") mode: toggles paragraph translation/hover. -->
-    <button
-      class="btn gloss-btn"
-      class:active={parasActive}
-      disabled={!canParas}
-      title={parasTitle}
-      aria-label={$t('toolbar.paras')}
-      aria-pressed={parasActive}
-      onclick={handleParasClick}
-      onpointerdown={startParasPress}
-      onpointerup={cancelParasPress}
-      onpointerleave={cancelParasPress}
-      onpointercancel={cancelParasPress}
-      oncontextmenu={handleParasContextMenu}
-    >{$t('toolbar.paras')}{#if parasActive && parasTotal > 0}<span class="paras-progress">{parasTranslated}/{parasTotal}</span>{/if}</button>
+    <!-- Paragraph ("段") mode. Right-click opens its own menu: 回答模式 switches
+         between the card/grading workflow and whole-paragraph reading. -->
+    <div class="paras-group">
+      <button
+        class="btn gloss-btn"
+        class:active={parasActive}
+        disabled={!canParas}
+        title={parasTitle}
+        aria-label={$t('toolbar.paras')}
+        aria-pressed={parasActive}
+        aria-haspopup="true"
+        aria-expanded={showParasMenu}
+        onclick={handleParasClick}
+        onpointerdown={startParasPress}
+        onpointerup={cancelParasPress}
+        onpointerleave={cancelParasPress}
+        onpointercancel={cancelParasPress}
+        oncontextmenu={handleParasContextMenu}
+      >{$t('toolbar.paras')}{#if parasActive && !parasAnswerMode && parasTotal > 0}<span class="paras-progress">{parasTranslated}/{parasTotal}</span>{/if}</button>
+
+      {#if showParasMenu}
+        <div class="speech-menu paras-menu" role="menu" aria-label={$t('toolbar.parasMenu')}>
+          <label class="speech-menu-item">
+            <input
+              type="checkbox"
+              checked={parasAnswerMode}
+              onchange={(event) => onToggleParasAnswer(event.currentTarget.checked)}
+            />
+            <span>{$t('toolbar.parasAnswerMode')}</span>
+          </label>
+          <label class="speech-menu-item">
+            <input
+              type="checkbox"
+              checked={parasSpeak}
+              onchange={(event) => onToggleParasSpeak(event.currentTarget.checked)}
+            />
+            <span>{$t('toolbar.parasReadAloud')}</span>
+          </label>
+          <button
+            type="button"
+            class="speech-menu-item speech-menu-action"
+            onclick={() => {
+              showParasMenu = false;
+              onOpenGlossSettings();
+            }}
+          >{$t('toolbar.translationSettings')}</button>
+        </div>
+      {/if}
+    </div>
 
     <!-- Sentence ("句") mode: same as 词, but the unit is a whole sentence.
          Long-press / right-click opens the shared gloss endpoint settings. -->
@@ -1102,6 +1156,34 @@
     display: flex;
     align-items: center;
     gap: 2px;
+  }
+
+  /* The 段 button's own right-click menu anchors to it. */
+  .paras-group {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .speech-menu-action {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 12px;
+    color: #1c1c1e;
+    cursor: pointer;
+  }
+
+  .speech-menu-action:hover {
+    background: #f2f2f7;
+  }
+
+  :global(html.dark) .speech-menu-action {
+    color: #e5e5e7;
+  }
+
+  :global(html.dark) .speech-menu-action:hover {
+    background: #3a3a3c;
   }
 
   /* Right-click menu of the play button, opened like the speed popover. */

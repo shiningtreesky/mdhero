@@ -83,7 +83,13 @@ export function caretAtPoint(x: number, y: number): CaretHit | null {
  *  leading above and below the glyphs: at 1.7 line spacing a 17px font leaves
  *  ~6px of empty space under the text, and a bubble glued to that edge floats
  *  visibly below the word. Shortening the box to the glyphs lets "below the
- *  word" mean the line right under the letters. */
+ *  word" mean the line right under the letters.
+ *
+ *  Only the bottom is trimmed. A multi-line range's height is
+ *  `(lines - 1) * lineHeight + the last line's box`, not a whole number of line
+ *  boxes, so taking the half-leading off both ends would lift the bottom above
+ *  the last line's glyphs — a pinned sentence bubble then covers the very line
+ *  it was placed under. */
 export function anchorRect(range: Range): DOMRect {
   const rect = range.getBoundingClientRect();
   const node = range.startContainer;
@@ -102,7 +108,11 @@ export function anchorRect(range: Range): DOMRect {
     : box;
   const slack = Math.max(0, (box - glyph) / 2);
   if (slack < 0.5) return rect;
-  return new DOMRect(rect.x, rect.y + slack, rect.width, rect.height - slack * 2);
+  // A multi-line range ends on the last line's glyphs already (its height is
+  // `(lines - 1) * lineHeight + glyph box`), so trimming would lift the bottom
+  // above that line and the bubble would cover it.
+  if (rect.height > box + 0.5) return rect;
+  return new DOMRect(rect.x, rect.y + slack, rect.width, Math.max(1, rect.height - slack * 2));
 }
 
 /** Keep the bubble glued to the range: one pixel under the glyphs by default,
@@ -116,6 +126,10 @@ export function placeBubbleAt(
   bubble: HTMLElement,
   rect: DOMRect,
   occupied: DOMRect[] = [],
+  /** `left` pins the bubble's left edge to the range's start (句 mode: the
+   *  translation starts where the sentence starts); `center` centres it over
+   *  the range (词 mode). */
+  align: "center" | "left" = "center",
 ): void {
   if (rect.width === 0 && rect.height === 0) {
     bubble.style.display = "none";
@@ -125,7 +139,7 @@ export function placeBubbleAt(
   bubble.style.visibility = "hidden";
   const width = bubble.offsetWidth;
   const height = bubble.offsetHeight;
-  let left = rect.left + rect.width / 2 - width / 2;
+  let left = align === "left" ? rect.left : rect.left + rect.width / 2 - width / 2;
   let top = rect.bottom + 1;
   if (top + height > window.innerHeight - 6) top = rect.top - height - 1;
   if (top < 4) top = rect.bottom + 1;

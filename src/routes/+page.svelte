@@ -95,7 +95,9 @@
   import { sentence as sentenceAction } from "$lib/glossary/sentence";
   import { isEnglishDocument } from "$lib/utils/glossary";
   import { parasMode } from "$lib/stores/parasMode";
+  import { parasAnswerMode, parasSpeak } from "$lib/stores/parasReading";
   import { paras as parasAction } from "$lib/paras/action";
+  import { paragraphReading } from "$lib/glossary/paragraph";
   import {
     getParasDocument,
     getParasSession,
@@ -349,7 +351,8 @@
   // in the dual reading layout with an English article, and they are mutually
   // exclusive because both paint highlights over the same column.
   let canParas = $derived(canGloss);
-  let canScore = $derived($parasMode && canGloss);
+  // Grading belongs to the answer workflow; paragraph reading has no cards.
+  let canScore = $derived($parasMode && $parasAnswerMode && canGloss);
   let activeParasSession = $derived(
     activeTab ? getParasSession(activeTab.id, activeTab.filePath) : null,
   );
@@ -1793,6 +1796,11 @@
       canParas={canParas}
       parasActive={canParas && $parasMode}
       {parasTitle}
+      parasAnswerMode={$parasAnswerMode}
+      parasSpeak={$parasSpeak}
+      onToggleParasAnswer={(on) => parasAnswerMode.set(on)}
+      onToggleParasSpeak={(on) => parasSpeak.set(on)}
+      lineSpacingEnabled={pinActive || ($parasMode && !$parasAnswerMode)}
       parasTranslated={parasStats.translated}
       parasTotal={parasStats.total}
       onToggleParas={handleToggleParas}
@@ -1958,10 +1966,16 @@
           pinned: $sentencePinMode,
         }}
         use:parasAction={{
-          enabled: $parasMode && leftIsEnglish && glossLayoutOk,
+          enabled: $parasMode && $parasAnswerMode && leftIsEnglish && glossLayoutOk,
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
           onCardState: (open) => (parasCardOpen = open),
+        }}
+        use:paragraphReading={{
+          enabled: $parasMode && !$parasAnswerMode && leftIsEnglish && glossLayoutOk,
+          tabId: leftTab?.id ?? null,
+          filePath: leftTab?.filePath ?? null,
+          speak: $parasSpeak,
         }}
         use:speechHighlight={{ tabId: leftTab?.id ?? null, name: "mdhero-speech-left" }}
       >
@@ -2005,10 +2019,16 @@
         pinned: $sentencePinMode,
       }}
       use:parasAction={{
-        enabled: $parasMode && rightIsEnglish && glossLayoutOk,
+        enabled: $parasMode && $parasAnswerMode && rightIsEnglish && glossLayoutOk,
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
         onCardState: (open) => (parasCardOpen = open),
+      }}
+      use:paragraphReading={{
+        enabled: $parasMode && !$parasAnswerMode && rightIsEnglish && glossLayoutOk,
+        tabId: rightTab?.id ?? null,
+        filePath: rightTab?.filePath ?? null,
+        speak: $parasSpeak,
       }}
       use:speechHighlight={{ tabId: rightTab?.id ?? null, name: "mdhero-speech-right" }}
     >

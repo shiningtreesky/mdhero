@@ -157,6 +157,7 @@ pub fn run() {
             paras::paras_store,
             paras::paras_replace,
             paras::paras_drafts_store,
+            paras::paras_reading_store,
             grader::grader_score,
             commands::resolve_path,
             commands::path_exists,
