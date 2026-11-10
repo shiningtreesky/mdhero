@@ -2,6 +2,7 @@ import { get } from "svelte/store";
 import { translate } from "$lib/i18n";
 import { glossarySettings } from "$lib/stores/glossarySettings";
 import { speakText, stopTextSpeech } from "$lib/tts/word";
+import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
 import { splitSpeechChunks } from "$lib/utils/tts";
 import {
   collectParagraphs,
@@ -861,6 +862,10 @@ export function createParasBrowser(
     if (!destroyed && entries.length > 0 && !card) renderBubbles();
   });
 
+  // Line spacing (and font size) reflow the article without a resize event;
+  // the open card is placed from its paragraph's rect, so re-glue it.
+  window.addEventListener(LAYOUT_CHANGE_EVENT, onResize);
+
   void session.ready.then(() => {
     if (!destroyed) void rebuild();
   });
@@ -871,6 +876,7 @@ export function createParasBrowser(
       rebuildToken++;
       clearTimeout(rebuildTimer);
       unsubscribe();
+      window.removeEventListener(LAYOUT_CHANGE_EVENT, onResize);
       observer?.disconnect();
       observer = null;
       closeCard();

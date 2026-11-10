@@ -10,6 +10,7 @@
   import mermaid from "mermaid";
   import DOMPurify from "dompurify";
   import { MERMAID_SANITIZE_CONFIG } from "$lib/renderer/mermaid-sanitize";
+  import { notifyLayoutChange } from "$lib/utils/layout";
 
   let {
     html = "",
@@ -218,6 +219,23 @@
     });
   });
 
+  // Line spacing, font size and content width reflow the article without a
+  // window resize. Overlays glued to DOM rects (pinned gloss bubbles, sentence
+  // bubbles, paragraph cards) cannot see that, so announce it once Svelte has
+  // written the new style.
+  $effect(() => {
+    $settings.lineHeight;
+    $settings.fontSize;
+    $settings.widthMode;
+    $settings.maxWidth;
+    tick().then(() => {
+      // Force the queued style change through layout before overlays measure
+      // their anchors; otherwise they re-glue to the pre-change rects.
+      void articleEl?.offsetHeight;
+      notifyLayoutChange();
+    });
+  });
+
   // The shared TOC and the active-heading highlight belong to the primary
   // document, so the dual pane's second copy stays out of both. `secondary` is
   // read here, not inside the tick above, so moving focus between columns hands
@@ -363,6 +381,10 @@
 <style>
   .md-content {
     color: #1c1c1e;
+    /* Line height and font size are reading tools, not animation: the text has
+       to land, and the pinned bubbles with it, the moment the value changes.
+       Width still animates (the class this overrides is `transition-all`). */
+    transition-property: max-width, margin, padding;
   }
 
   :global(html.dark) .md-content {

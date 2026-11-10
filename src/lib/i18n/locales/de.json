@@ -105,7 +105,12 @@
     "speechRate": "Sprechtempo",
     "speechRateAria": "Sprechtempo",
     "speechHighlight": "Gesprochenen Satz hervorheben",
-    "speechOptions": "Vorleseoptionen"
+    "speechOptions": "Vorleseoptionen",
+    "lineSpacing": "Zeilenabstand",
+    "lineSpacingDecrease": "Zeilenabstand verkleinern",
+    "lineSpacingIncrease": "Zeilenabstand vergrößern",
+    "lineSpacingNoFile": "Zeilenabstand (zuerst eine Datei öffnen)",
+    "lineSpacingNeedsPin": "Zeilenabstand (nur bei angehefteten Wörtern)"
   },
   "speech": {
     "emptyDocument": "Dieses Dokument enthält keinen lesbaren Text.",

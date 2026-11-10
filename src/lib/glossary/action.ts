@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { translate } from "$lib/i18n";
 import { glossarySettings } from "$lib/stores/glossarySettings";
+import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
 import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
 import {
@@ -653,6 +654,9 @@ export function createGlossaryBrowser(
   // bubble to window) still keep the bubble glued to its word.
   window.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
   window.addEventListener("resize", schedulePosition);
+  // Line spacing (and font size) reflow the article without a resize event, and
+  // every pinned bubble is positioned from its word's rect: re-glue them.
+  window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
 
   const observer = new MutationObserver(() => {
     clearHover();
@@ -662,7 +666,15 @@ export function createGlossaryBrowser(
     }
     schedulePosition();
   });
-  observer.observe(article, { childList: true, subtree: true, characterData: true });
+  observer.observe(article, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    // The article's style attribute carries line spacing and font size: a
+    // change there reflows every word, so the pinned bubbles must re-glue.
+    attributes: true,
+    attributeFilter: ["style"],
+  });
 
   return {
     setPinned(on: boolean) {
@@ -680,6 +692,7 @@ export function createGlossaryBrowser(
       document.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
+      window.removeEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
       clearPinned();
       if (!useHighlight) {
         if (idleHandle !== null) {

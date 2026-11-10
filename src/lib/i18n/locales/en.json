@@ -105,7 +105,12 @@
     "speechRate": "Speech rate",
     "speechRateAria": "Speech rate",
     "speechHighlight": "Highlight spoken sentence",
-    "speechOptions": "Read-aloud options"
+    "speechOptions": "Read-aloud options",
+    "lineSpacing": "Line spacing",
+    "lineSpacingDecrease": "Decrease line spacing",
+    "lineSpacingIncrease": "Increase line spacing",
+    "lineSpacingNoFile": "Line spacing (open a file first)",
+    "lineSpacingNeedsPin": "Line spacing (available while words are pinned)"
   },
   "speech": {
     "emptyDocument": "There is no readable text in this document.",

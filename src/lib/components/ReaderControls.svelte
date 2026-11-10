@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { settings } from "$lib/stores/settings";
+  import {
+    settings,
+    setLineHeight,
+    MIN_LINE_HEIGHT,
+    MAX_LINE_HEIGHT,
+    LINE_HEIGHT_STEP,
+  } from "$lib/stores/settings";
   import { t, type MessageKey } from "$lib/i18n";
 
   let { visible = false }: { visible: boolean } = $props();
@@ -54,11 +60,11 @@
       </div>
       <input
         type="range"
-        min="1.4"
-        max="2.0"
-        step="0.1"
+        min={MIN_LINE_HEIGHT}
+        max={MAX_LINE_HEIGHT}
+        step={LINE_HEIGHT_STEP}
         value={$settings.lineHeight}
-        oninput={(e) => settings.update((s) => ({ ...s, lineHeight: parseFloat(e.currentTarget.value) }))}
+        oninput={(e) => setLineHeight(e.currentTarget.value)}
         class="rc-range"
       />
     </div>

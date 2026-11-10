@@ -3,7 +3,12 @@ import { A4_WIDTH } from "../utils/page";
 
 export interface ReaderSettings {
   fontSize: number;
+  /** Reading panes only: the toolbar's quick control and the Aa panel slider
+   *  share it, so both stay in step. */
   lineHeight: number;
+  /** Editor and source view, kept apart so the reading control never reflows
+   *  the text being typed. */
+  editorLineHeight: number;
   fontFamily: "sans" | "serif" | "mono";
   maxWidth: number;
   widthMode: "comfortable" | "wide";
@@ -34,6 +39,14 @@ const STORAGE_KEY = "mdhero-settings";
 export const DEFAULT_FONT_SIZE = 17;
 export const MIN_FONT_SIZE = 10;
 export const MAX_FONT_SIZE = 32;
+
+/** Reading line spacing bounds, shared by the toolbar control and the Aa panel.
+ *  The wide ceiling is deliberate: pinned gloss bubbles cover the next line, and
+ *  opening the leading up is how a reader gets the text out from behind them. */
+export const DEFAULT_LINE_HEIGHT = 1.7;
+export const MIN_LINE_HEIGHT = 1.0;
+export const MAX_LINE_HEIGHT = 3.0;
+export const LINE_HEIGHT_STEP = 0.1;
 
 const DEFAULT_MAX_WIDTH = A4_WIDTH;
 const MIN_MAX_WIDTH = 560;
@@ -82,7 +95,8 @@ function storedBoolean(value: unknown, fallback: boolean): boolean {
 function loadSettings(): ReaderSettings {
   const defaults: ReaderSettings = {
     fontSize: DEFAULT_FONT_SIZE,
-    lineHeight: 1.7,
+    lineHeight: DEFAULT_LINE_HEIGHT,
+    editorLineHeight: DEFAULT_LINE_HEIGHT,
     fontFamily: "sans",
     maxWidth: DEFAULT_MAX_WIDTH,
     widthMode: "comfortable",
@@ -106,6 +120,8 @@ function loadSettings(): ReaderSettings {
       const storedMaxWidth = Number(parsed.maxWidth) || defaults.maxWidth;
       return {
         ...parsed,
+        lineHeight: clampLineHeight(parsed.lineHeight),
+        editorLineHeight: clampLineHeight(parsed.editorLineHeight),
         maxWidth: clamp(storedMaxWidth, MIN_MAX_WIDTH, MAX_MAX_WIDTH),
         widthMode: parsed.widthMode === "wide" ? "wide" : "comfortable",
         tocWidth: clampTocWidth(parsed.tocWidth),
@@ -148,6 +164,28 @@ function createSettingsStore() {
 }
 
 export const settings = createSettingsStore();
+
+/** Clamp an arbitrary reading line spacing to the bounds both controls show.
+ *  Junk (a half-typed box, a hand-edited localStorage entry) falls back to the
+ *  default instead of collapsing the leading to zero. */
+export function clampLineHeight(value: unknown): number {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(numeric)) return DEFAULT_LINE_HEIGHT;
+  // One decimal: the 0.1 steps must not accumulate float noise in the box.
+  return Math.round(clamp(numeric, MIN_LINE_HEIGHT, MAX_LINE_HEIGHT) * 10) / 10;
+}
+
+/** Persist a new reading line spacing and return the clamped value. */
+export function setLineHeight(value: unknown): number {
+  const next = clampLineHeight(value);
+  settings.update((current) => ({ ...current, lineHeight: next }));
+  return next;
+}
 
 /** `size` moved by `steps` px, kept within the zoom bounds. */
 export function stepFontSize(size: number, steps: number): number {

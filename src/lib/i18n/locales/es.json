@@ -105,7 +105,12 @@
     "speechRate": "Velocidad de lectura",
     "speechRateAria": "Velocidad de lectura",
     "speechHighlight": "Resaltar la frase leída",
-    "speechOptions": "Opciones de lectura en voz alta"
+    "speechOptions": "Opciones de lectura en voz alta",
+    "lineSpacing": "Interlineado",
+    "lineSpacingDecrease": "Reducir el interlineado",
+    "lineSpacingIncrease": "Aumentar el interlineado",
+    "lineSpacingNoFile": "Interlineado (abre un archivo primero)",
+    "lineSpacingNeedsPin": "Interlineado (disponible al fijar palabras)"
   },
   "speech": {
     "emptyDocument": "Este documento no contiene texto legible.",

@@ -34,3 +34,23 @@ export function chromeTop(): number {
   );
   return Number.isFinite(value) ? value : TOP_TABS_CHROME;
 }
+
+/**
+ * Reflow notification for overlays that position themselves from DOM rects.
+ *
+ * Pinned gloss bubbles, sentence bubbles and paragraph cards are `position:
+ * fixed` elements placed from `getBoundingClientRect()`. They already follow
+ * scrolling and window resizes, but a type-settings change (line spacing in
+ * particular) reflows the article without either event — Svelte writes the new
+ * value into the article's inline style object, which fires no mutation record
+ * the actions listen for.
+ *
+ * The reading pane therefore announces the reflow once the new style is in the
+ * DOM, and every overlay re-glues itself to its anchor.
+ */
+export const LAYOUT_CHANGE_EVENT = "mdhero:layout-change";
+
+export function notifyLayoutChange(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(LAYOUT_CHANGE_EVENT));
+}

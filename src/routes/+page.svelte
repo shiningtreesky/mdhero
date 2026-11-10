@@ -1862,7 +1862,7 @@
           value={leftTab.editContent}
           onChange={(v) => tabStore.updateEditContent(leftTab!.id, v)}
           fontSize={$settings.fontSize}
-          lineHeight={$settings.lineHeight}
+          lineHeight={$settings.editorLineHeight}
           maxWidth={contentMaxWidth}
           showLineNumbers={$settings.showLineNumbers}
           syntaxHighlighting={$settings.syntaxHighlighting}
@@ -1883,7 +1883,7 @@
           value={leftTab.editContent}
           onChange={(v) => tabStore.updateEditContent(leftTab!.id, v)}
           fontSize={$settings.fontSize}
-          lineHeight={$settings.lineHeight}
+          lineHeight={$settings.editorLineHeight}
           maxWidth={contentMaxWidth}
           showLineNumbers={$settings.showLineNumbers}
           syntaxHighlighting={$settings.syntaxHighlighting}
@@ -1909,13 +1909,13 @@
             <div
               class="raw-gutter"
               aria-hidden="true"
-              style="font-size: {$settings.fontSize}px; line-height: {$settings.lineHeight};"
+              style="font-size: {$settings.fontSize}px; line-height: {$settings.editorLineHeight};"
             >{@html rawGutterHtml}</div>
           {/if}
           <pre
             class="raw-source"
             class:with-gutter={rawGutterOn}
-            style="font-size: {$settings.fontSize}px; line-height: {$settings.lineHeight};"
+            style="font-size: {$settings.fontSize}px; line-height: {$settings.editorLineHeight};"
           ><code>{$docStore.content}</code></pre>
         </div>
       </main>

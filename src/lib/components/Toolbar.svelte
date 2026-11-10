@@ -1,7 +1,13 @@
 <script lang="ts">
   import { document } from "../stores/document";
   import { MOD } from "$lib/utils/platform";
-  import { settings } from "../stores/settings";
+  import {
+    settings,
+    setLineHeight,
+    MIN_LINE_HEIGHT,
+    MAX_LINE_HEIGHT,
+    LINE_HEIGHT_STEP,
+  } from "../stores/settings";
   import { themeMode, toggleTheme } from "../stores/theme";
   import { tocVisible, tocEntries, toggleToc, activeHeadingId } from "../stores/toc";
   import { openFileDialog } from "../tauri/files";
@@ -385,6 +391,26 @@
     }));
   }
 
+  /** Leading of the reading panes, shared with the Aa panel's slider. Only
+   *  meaningful while words or sentences are pinned: opening the lines up is
+   *  how a reader gets the text out from behind a pinned gloss. */
+  let lineSpacingDisabled = $derived(!canSpeak || !glossPinActive);
+  let lineSpacingTitle = $derived(
+    !canSpeak
+      ? $t("toolbar.lineSpacingNoFile")
+      : !glossPinActive
+        ? $t("toolbar.lineSpacingNeedsPin")
+        : $t("toolbar.lineSpacing"),
+  );
+
+  function stepLineHeight(direction: 1 | -1) {
+    setLineHeight($settings.lineHeight + direction * LINE_HEIGHT_STEP);
+  }
+
+  function handleLineHeightInput(event: Event) {
+    setLineHeight((event.currentTarget as HTMLInputElement).value);
+  }
+
   // `@tauri-apps/api` exposes no print() on Webview or Window (checked through
   // 2.11), so the former try-branch calling `getCurrentWebview().print()` was
   // undefined at runtime and always fell through to this. Same behaviour, no
@@ -724,6 +750,42 @@
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="10" y2="8"/><line x1="2" y1="12" x2="12" y2="12"/></svg>
     </button>
 
+    <div
+      class="line-spacing"
+      role="group"
+      aria-label={$t('toolbar.lineSpacing')}
+      title={lineSpacingTitle}
+    >
+      <button
+        type="button"
+        class="ls-step"
+        onclick={() => stepLineHeight(-1)}
+        disabled={lineSpacingDisabled}
+        aria-label={$t('toolbar.lineSpacingDecrease')}
+        tabindex="-1"
+      >−</button>
+      <input
+        class="ls-value"
+        type="number"
+        inputmode="decimal"
+        min={MIN_LINE_HEIGHT}
+        max={MAX_LINE_HEIGHT}
+        step={LINE_HEIGHT_STEP}
+        value={$settings.lineHeight.toFixed(1)}
+        onchange={handleLineHeightInput}
+        disabled={lineSpacingDisabled}
+        aria-label={$t('toolbar.lineSpacing')}
+      />
+      <button
+        type="button"
+        class="ls-step"
+        onclick={() => stepLineHeight(1)}
+        disabled={lineSpacingDisabled}
+        aria-label={$t('toolbar.lineSpacingIncrease')}
+        tabindex="-1"
+      >+</button>
+    </div>
+
     <button
       onclick={toggleReaderControls}
       class="btn btn-icon"
@@ -950,6 +1012,86 @@
     display: flex;
     align-items: center;
     gap: 2px;
+  }
+
+  /* Reading line spacing: − value +, tucked left of the Aa panel button. */
+  .line-spacing {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 1px;
+    margin-right: 2px;
+    border: 1px solid #e5e5ea;
+    border-radius: 7px;
+    background: #f6f6f8;
+  }
+
+  :global(html.dark) .line-spacing {
+    border-color: #3a3a3c;
+    background: #1c1c1e;
+  }
+
+  .line-spacing:focus-within {
+    border-color: #0891b2;
+  }
+
+  .ls-step {
+    width: 18px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: #636366;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .ls-step:hover:not(:disabled) {
+    background: #e5e5ea;
+  }
+
+  :global(html.dark) .ls-step {
+    color: #aeaeb2;
+  }
+
+  :global(html.dark) .ls-step:hover:not(:disabled) {
+    background: #3a3a3c;
+  }
+
+  .ls-step:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .ls-value {
+    width: 34px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #1c1c1e;
+    font-size: 11px;
+    font-family: "SF Mono", "JetBrains Mono", monospace;
+    text-align: center;
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  .ls-value::-webkit-outer-spin-button,
+  .ls-value::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  :global(html.dark) .ls-value {
+    color: #e5e5e7;
+  }
+
+  .ls-value:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .speech-group {

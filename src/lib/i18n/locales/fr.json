@@ -105,7 +105,12 @@
     "speechRate": "Vitesse de lecture",
     "speechRateAria": "Vitesse de lecture",
     "speechHighlight": "Surligner la phrase lue",
-    "speechOptions": "Options de lecture audio"
+    "speechOptions": "Options de lecture audio",
+    "lineSpacing": "Interligne",
+    "lineSpacingDecrease": "Réduire l'interligne",
+    "lineSpacingIncrease": "Augmenter l'interligne",
+    "lineSpacingNoFile": "Interligne (ouvrez d'abord un fichier)",
+    "lineSpacingNeedsPin": "Interligne (disponible avec les mots épinglés)"
   },
   "speech": {
     "emptyDocument": "Ce document ne contient aucun texte lisible.",

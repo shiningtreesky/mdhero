@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { translate } from "$lib/i18n";
 import { glossarySettings } from "$lib/stores/glossarySettings";
+import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
 import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
 import { collectParagraphs, UNIT_SELECTOR } from "$lib/utils/paragraphs";
@@ -479,6 +480,9 @@ export function createSentenceBrowser(
   // bubble to window) still keep the bubble glued to its sentence.
   window.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
   window.addEventListener("resize", schedulePosition);
+  // A line-spacing change reflows the article without a resize event; the
+  // bubble is positioned from its sentence's rect, so re-glue it.
+  window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
 
   const observer = new MutationObserver(() => {
     clearHover();
@@ -502,6 +506,7 @@ export function createSentenceBrowser(
       document.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
+      window.removeEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
       if (!useHighlight) {
         if (idleHandle !== null) {
           const w = window as Window & { cancelIdleCallback?: (id: number) => void };

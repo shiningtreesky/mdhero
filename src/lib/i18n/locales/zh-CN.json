@@ -105,7 +105,12 @@
     "speechRate": "语速",
     "speechRateAria": "朗读语速",
     "speechHighlight": "高亮显示",
-    "speechOptions": "朗读选项"
+    "speechOptions": "朗读选项",
+    "lineSpacing": "行距",
+    "lineSpacingDecrease": "减小行距",
+    "lineSpacingIncrease": "增大行距",
+    "lineSpacingNoFile": "行距（请先打开文件）",
+    "lineSpacingNeedsPin": "行距（开启钉住后可调）"
   },
   "speech": {
     "emptyDocument": "本文档没有可朗读的文字。",
