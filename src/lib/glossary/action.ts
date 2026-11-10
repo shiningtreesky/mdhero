@@ -4,6 +4,7 @@ import { glossarySettings } from "$lib/stores/glossarySettings";
 import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
 import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
+import { looping, startLoop, stopLoop } from "$lib/tts/loop";
 import {
   formatPhonetic,
   normalizeWord,
@@ -44,6 +45,8 @@ import {
 
 const HOVER_NAME = "mdhero-gloss-hover";
 const PINNED_NAME = "mdhero-gloss-pinned";
+/** The word that is repeating: a warmer wash than the pinned amber. */
+const LOOP_NAME = "mdhero-gloss-loop";
 const STYLE_ID = "mdhero-gloss-style";
 const BUBBLE_CLASS = "mdhero-gloss-bubble";
 const WORD_CLASS = "mdhero-gloss-word";
@@ -81,6 +84,8 @@ export interface GlossaryParams {
   pinned?: boolean;
   /** Show IPA instead of the Chinese meaning (the 音 view). */
   phoneticView?: boolean;
+  /** Repeat clicked words until clicked again. */
+  loop?: boolean;
 }
 
 interface WordHit {
@@ -114,6 +119,7 @@ interface Browser {
   destroy(): void;
   setPinned(on: boolean): void;
   setPhoneticView(on: boolean): void;
+  setLoop(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -123,6 +129,17 @@ function injectStyles(): void {
   style.textContent = `
 ::highlight(${HOVER_NAME}) { color: #eab308; }
 ::highlight(${PINNED_NAME}) { color: #eab308; }
+::highlight(${LOOP_NAME}) { color: #f59e0b; background-color: rgba(245, 158, 11, 0.25); }
+.${BUBBLE_CLASS}.playing {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+}
+html.dark .${BUBBLE_CLASS}.playing {
+  background: #3a2f12;
+  border-color: #b45309;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+}
 .${WORD_CLASS}.${HOVER_CLASS} { color: #eab308; }
 .${WORD_CLASS}.${PINNED_CLASS} { color: #eab308; }
 .${BUBBLE_CLASS} {
@@ -205,12 +222,15 @@ export function createGlossaryBrowser(
   let anchorRange: Range | null = null;
   let anchorNode: Text | null = null;
   let anchorStart = -1;
+  /** Loop key of the hovered word, so its bubble can be marked as playing. */
+  let anchorKey: string | null = null;
   /** Last rendered hover bubble contents, so the 音 view can repaint it. */
   let anchorGloss: string | null = null;
   let anchorPhonetic: Phonetic | undefined;
   let requestToken = 0;
   let rafPending = false;
   let pinned = params.pinned === true;
+  let loopEnabled = params.loop === true;
   /** 音 view: bubbles show IPA instead of the gloss. */
   let phoneticView = params.phoneticView === true;
   /** True while restoring saved pins: those are already in the file. */
@@ -243,6 +263,7 @@ export function createGlossaryBrowser(
     anchorStart = -1;
     anchorGloss = null;
     anchorPhonetic = undefined;
+    anchorKey = null;
     bubble.style.display = "none";
     bubble.textContent = "";
   }
@@ -400,6 +421,7 @@ export function createGlossaryBrowser(
     anchorRange = range;
     anchorNode = node;
     anchorStart = token.start;
+    anchorKey = wordLoopKey(token.word, occurrenceOf(node, token));
     anchorGloss = null;
     anchorPhonetic = undefined;
     bubble.textContent = "…";
@@ -595,6 +617,16 @@ export function createGlossaryBrowser(
     event.preventDefault();
     event.stopPropagation();
 
+    if (loopEnabled) {
+      const key = wordLoopKey(token.word, occurrenceOf(node, token));
+      if (get(looping)?.key === key) {
+        stopLoop();
+        syncLoopHighlight();
+        return;
+      }
+      startLoop({ key, text: token.word });
+    }
+
     if (pinned) {
       // Ctrl/Cmd+click is the only way to unpin one occurrence.
       if (event.ctrlKey || event.metaKey) {
@@ -604,6 +636,7 @@ export function createGlossaryBrowser(
       }
       if (wantsSpeech(event)) speakText(token.word);
       pinWord(node, token, range, occurrenceOf(node, token));
+      syncLoopHighlight();
       return;
     }
 
@@ -612,9 +645,43 @@ export function createGlossaryBrowser(
       // while the word is read again.
       speakText(token.word);
       void showBubble(node, token, range, false);
+      syncLoopHighlight();
       return;
     }
     void showBubble(node, token, range);
+    syncLoopHighlight();
+  }
+
+  /** Stable identity of one word appearance for the loop. */
+  function wordLoopKey(word: string, occurrence: number): string {
+    return `w:${normalizeWord(word)}@${occurrence}`;
+  }
+
+  /** Paint the repeating word and its bubble, distinct from the pinned amber. */
+  function syncLoopHighlight(): void {
+    const target = get(looping);
+    const key = target?.key.startsWith("w:") ? target.key : null;
+    let range: Range | null = null;
+    if (key) {
+      for (const entry of pinnedEntries) {
+        if (wordLoopKey(entry.token.word, entry.occurrence) === key) {
+          range = entry.range;
+          break;
+        }
+      }
+      if (!range && anchorRange && anchorKey === key) range = anchorRange;
+    }
+    if (useHighlight && highlightRegistry && HighlightCtor) {
+      if (range) highlightRegistry.set(LOOP_NAME, new HighlightCtor(range));
+      else highlightRegistry.delete(LOOP_NAME);
+    }
+    for (const entry of pinnedEntries) {
+      entry.bubble.classList.toggle(
+        "playing",
+        !!key && wordLoopKey(entry.token.word, entry.occurrence) === key,
+      );
+    }
+    bubble.classList.toggle("playing", !!key && anchorKey === key);
   }
 
   function onMove(event: MouseEvent): void {
@@ -786,6 +853,7 @@ export function createGlossaryBrowser(
   // Line spacing (and font size) reflow the article without a resize event, and
   // every pinned bubble is positioned from its word's rect: re-glue them.
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  const unsubscribeLoop = looping.subscribe(() => syncLoopHighlight());
   // Pins saved with this document come back once the file has been read; the
   // toggle may be flipped either before or after `ready` resolves.
   void cache.ready.then(() => restorePins());
@@ -815,6 +883,9 @@ export function createGlossaryBrowser(
     setPhoneticView(on: boolean) {
       setPhoneticView(on);
     },
+    setLoop(on: boolean) {
+      loopEnabled = on;
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -828,6 +899,8 @@ export function createGlossaryBrowser(
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
       window.removeEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+      unsubscribeLoop();
+      highlightRegistry?.delete(LOOP_NAME);
       clearPinned();
       if (!useHighlight) {
         if (idleHandle !== null) {
@@ -872,6 +945,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
         next.filePath !== current.filePath;
       const pinChanged = !!next.pinned !== !!current.pinned;
       const viewChanged = !!next.phoneticView !== !!current.phoneticView;
+      const loopChanged = !!next.loop !== !!current.loop;
       current = next;
       if (changed) {
         stop();
@@ -880,6 +954,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
       }
       if (pinChanged) browser?.setPinned(!!next.pinned);
       if (viewChanged) browser?.setPhoneticView(!!next.phoneticView);
+      if (loopChanged) browser?.setLoop(!!next.loop);
     },
     destroy() {
       stop();

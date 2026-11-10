@@ -90,6 +90,8 @@
   import { glossPinMode } from "$lib/stores/glossPin";
   import { sentencePinMode } from "$lib/stores/sentencePin";
   import { wordPhoneticView } from "$lib/stores/wordPhonetic";
+  import { loopSpeech } from "$lib/stores/loopSpeech";
+  import { stopLoop } from "$lib/tts/loop";
   import { isDiskCacheablePath } from "$lib/glossary/cache";
   import { glossary } from "$lib/glossary/action";
   import { sentenceMode } from "$lib/stores/sentenceMode";
@@ -343,6 +345,22 @@
       return;
     }
     wordPhoneticView.toggle();
+  }
+
+  // Loop listening: the reading modes repeat whatever is clicked.
+  let loopTitle = $derived(
+    !canGloss
+      ? $t("toolbar.glossDisabledMode")
+      : $loopSpeech
+        ? $t("toolbar.loopOn")
+        : $t("toolbar.loopOff"),
+  );
+
+  function handleToggleLoop(): void {
+    if (!canGloss) return;
+    const next = !$loopSpeech;
+    loopSpeech.set(next);
+    if (!next) stopLoop();
   }
 
   let pinActive = $derived($sentenceMode ? $sentencePinMode : $glossPinMode);
@@ -1827,6 +1845,10 @@
       phoneticActive={phoneticViewActive}
       {phoneticTitle}
       onTogglePhonetic={handleTogglePhonetic}
+      canLoop={canGloss}
+      loopActive={$loopSpeech}
+      {loopTitle}
+      onToggleLoop={handleToggleLoop}
       canSentence={canSentence}
       sentenceActive={canSentence && $sentenceMode}
       {sentenceTitle}
@@ -1997,12 +2019,14 @@
           filePath: leftTab?.filePath ?? null,
           pinned: $glossPinMode,
           phoneticView: $wordPhoneticView,
+          loop: $loopSpeech,
         }}
         use:sentenceAction={{
           enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
           pinned: $sentencePinMode,
+          loop: $loopSpeech,
         }}
         use:parasAction={{
           enabled: $parasMode && $parasAnswerMode && leftIsEnglish && glossLayoutOk,
@@ -2015,6 +2039,7 @@
           tabId: leftTab?.id ?? null,
           filePath: leftTab?.filePath ?? null,
           speak: $parasSpeak,
+          loop: $loopSpeech,
         }}
         use:speechHighlight={{ tabId: leftTab?.id ?? null, name: "mdhero-speech-left" }}
       >
@@ -2051,12 +2076,14 @@
         filePath: rightTab?.filePath ?? null,
         pinned: $glossPinMode,
         phoneticView: $wordPhoneticView,
+        loop: $loopSpeech,
       }}
       use:sentenceAction={{
         enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
         pinned: $sentencePinMode,
+        loop: $loopSpeech,
       }}
       use:parasAction={{
         enabled: $parasMode && $parasAnswerMode && rightIsEnglish && glossLayoutOk,
@@ -2069,6 +2096,7 @@
         tabId: rightTab?.id ?? null,
         filePath: rightTab?.filePath ?? null,
         speak: $parasSpeak,
+        loop: $loopSpeech,
       }}
       use:speechHighlight={{ tabId: rightTab?.id ?? null, name: "mdhero-speech-right" }}
     >

@@ -70,6 +70,11 @@
     phoneticActive = false,
     phoneticTitle = "",
     onTogglePhonetic = () => {},
+    /** Loop listening: clicking a word/sentence/paragraph repeats it. */
+    canLoop = false,
+    loopActive = false,
+    loopTitle = "",
+    onToggleLoop = () => {},
     /** Sentence reading ("句") mode: same interactions as 词, one sentence at a time. */
     canSentence = false,
     sentenceActive = false,
@@ -146,6 +151,11 @@
     phoneticActive?: boolean;
     phoneticTitle?: string;
     onTogglePhonetic?: () => void;
+    /** Loop listening: clicking a word/sentence/paragraph repeats it. */
+    canLoop?: boolean;
+    loopActive?: boolean;
+    loopTitle?: string;
+    onToggleLoop?: () => void;
     canSentence?: boolean;
     sentenceActive?: boolean;
     sentenceTitle?: string;
@@ -698,6 +708,25 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z" />
         <path d="M12 14v7" />
+      </svg>
+    </button>
+
+    <!-- Loop listening: clicking a word, sentence or paragraph repeats it with
+         a breath between passes until clicked again. -->
+    <button
+      class="btn gloss-btn gloss-loop-btn"
+      class:active={loopActive}
+      disabled={!canLoop}
+      title={loopTitle}
+      aria-label={$t('toolbar.loop')}
+      aria-pressed={loopActive}
+      onclick={onToggleLoop}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 2l4 4-4 4" />
+        <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+        <path d="M7 22l-4-4 4-4" />
+        <path d="M21 13v1a4 4 0 0 1-4 4H3" />
       </svg>
     </button>
 

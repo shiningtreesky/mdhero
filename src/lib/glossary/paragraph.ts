@@ -1,6 +1,8 @@
+import { get } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
 import { translate } from "$lib/i18n";
 import { speakText } from "$lib/tts/word";
+import { looping, startLoop, stopLoop } from "$lib/tts/loop";
 import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
 import {
   collectParagraphs,
@@ -28,6 +30,7 @@ import { lookupSentence } from "./lookup";
  */
 
 const HOVER_NAME = "mdhero-para-read-hover";
+const LOOP_NAME = "mdhero-para-read-loop";
 const STYLE_ID = "mdhero-para-read-style";
 const BUBBLE_CLASS = "mdhero-para-read-bubble";
 
@@ -39,11 +42,14 @@ export interface ParagraphReadingParams {
   filePath: string | null;
   /** Click also reads the paragraph aloud. */
   speak?: boolean;
+  /** Repeat clicked paragraphs until clicked again. */
+  loop?: boolean;
 }
 
 interface Browser {
   destroy(): void;
   setSpeak(on: boolean): void;
+  setLoop(on: boolean): void;
 }
 
 interface PinnedParagraph {
@@ -75,6 +81,17 @@ function injectStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
 ::highlight(${HOVER_NAME}) { background-color: rgba(234, 179, 8, 0.16); }
+::highlight(${LOOP_NAME}) { background-color: rgba(245, 158, 11, 0.42); }
+.${BUBBLE_CLASS}.playing > span {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+}
+html.dark .${BUBBLE_CLASS}.playing > span {
+  background: #3a2f12;
+  border-color: #b45309;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+}
 .${BUBBLE_CLASS} {
   position: fixed;
   z-index: 80;
@@ -162,6 +179,7 @@ export function createParagraphReadingBrowser(
 
   let destroyed = false;
   let speak = params.speak === true;
+  let loopEnabled = params.loop === true;
   let state: ReadingState = emptyState();
   let unitByIndex = new Map<number, ParagraphEntry>();
   let unitByElement = new Map<HTMLElement, ParagraphEntry>();
@@ -418,18 +436,52 @@ export function createParagraphReadingBrowser(
     });
   }
 
+  function paragraphLoopKey(entry: ParagraphEntry): string {
+    return `p:${entry.index}`;
+  }
+
+  /** Paint the repeating paragraph and its translation bubble. */
+  function syncLoopHighlight(): void {
+    const target = get(looping);
+    const key = target?.key.startsWith("p:") ? target.key : null;
+    const entry = key ? unitByIndex.get(Number(key.slice(2))) : undefined;
+    if (useHighlight && highlightRegistry && HighlightCtor) {
+      if (entry) {
+        const range = document.createRange();
+        range.selectNodeContents(entry.element);
+        highlightRegistry.set(LOOP_NAME, new HighlightCtor(range));
+      } else {
+        highlightRegistry.delete(LOOP_NAME);
+      }
+    }
+    for (const pin of pinned.values()) {
+      pin.root.classList.toggle("playing", !!entry && pin.entry.index === entry.index);
+    }
+  }
+
   function onClick(event: MouseEvent): void {
     const entry = paragraphAt(event.clientX, event.clientY);
     if (!entry) return;
     event.preventDefault();
     event.stopPropagation();
+    if (loopEnabled) {
+      const key = paragraphLoopKey(entry);
+      if (get(looping)?.key === key) {
+        stopLoop();
+        syncLoopHighlight();
+        return;
+      }
+      startLoop({ key, text: entry.text });
+    }
     if (pinned.has(entry.index)) {
       if (event.ctrlKey || event.metaKey) removePinned(entry.index);
       else togglePinned(entry.index);
+      syncLoopHighlight();
       return;
     }
     pinParagraph(entry);
-    if (speak && entry.text) speakText(entry.text);
+    if (speak && entry.text && !loopEnabled) speakText(entry.text);
+    syncLoopHighlight();
   }
 
   function onLeave(): void {
@@ -455,6 +507,7 @@ export function createParagraphReadingBrowser(
   window.addEventListener("resize", schedulePosition);
   window.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  const unsubscribeLoop = looping.subscribe(() => syncLoopHighlight());
 
   void stateReady;
 
@@ -462,11 +515,16 @@ export function createParagraphReadingBrowser(
     setSpeak(on: boolean) {
       speak = on;
     },
+    setLoop(on: boolean) {
+      loopEnabled = on;
+    },
     destroy() {
       destroyed = true;
       clearHover();
       clearPinned();
+      unsubscribeLoop();
       highlightRegistry?.delete(HOVER_NAME);
+      highlightRegistry?.delete(LOOP_NAME);
       container.removeEventListener("mousemove", onMove);
       container.removeEventListener("mouseleave", onLeave);
       container.removeEventListener("click", onClick, true);
@@ -504,6 +562,7 @@ export function paragraphReading(node: HTMLElement, params: ParagraphReadingPara
         next.tabId !== current.tabId ||
         next.filePath !== current.filePath;
       const speakChanged = !!next.speak !== !!current.speak;
+      const loopChanged = !!next.loop !== !!current.loop;
       current = next;
       if (changed) {
         stop();
@@ -511,6 +570,7 @@ export function paragraphReading(node: HTMLElement, params: ParagraphReadingPara
         return;
       }
       if (speakChanged) browser?.setSpeak(!!next.speak);
+      if (loopChanged) browser?.setLoop(!!next.loop);
     },
     destroy() {
       stop();

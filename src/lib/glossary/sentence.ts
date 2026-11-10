@@ -7,6 +7,7 @@ import { speakText } from "$lib/tts/word";
 import { collectParagraphs, UNIT_SELECTOR } from "$lib/utils/paragraphs";
 import { sentenceKey, tokenizeSentences } from "$lib/utils/sentences";
 import { sentenceRanges, skipTextNode, unitText } from "$lib/utils/sentence-dom";
+import { looping, startLoop, stopLoop } from "$lib/tts/loop";
 import { SENTENCE_FILE_SUFFIX, createGlossCache, type GlossCache } from "./cache";
 import { lookupSentence } from "./lookup";
 import {
@@ -33,6 +34,9 @@ import {
 
 const HOVER_NAME = "mdhero-sentence-hover";
 const PINNED_NAME = "mdhero-sentence-pinned";
+/** The sentence that is repeating; a warmer colour than the pinned wash so it
+ *  stands out among pinned sentences. */
+const LOOP_NAME = "mdhero-sentence-loop";
 const STYLE_ID = "mdhero-sentence-style";
 const BUBBLE_CLASS = "mdhero-sentence-bubble";
 const SENTENCE_CLASS = "mdhero-sentence";
@@ -48,6 +52,8 @@ export interface SentenceParams {
   filePath: string | null;
   /** Keep every clicked sentence's translation on screen (the 钉住 toggle). */
   pinned?: boolean;
+  /** Repeat clicked sentences until clicked again. */
+  loop?: boolean;
 }
 
 /** A sentence whose translation stays on screen, like a pinned word. */
@@ -96,6 +102,7 @@ interface SentenceEntry {
 interface Browser {
   destroy(): void;
   setPinned(on: boolean): void;
+  setLoop(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -105,6 +112,17 @@ function injectStyles(): void {
   style.textContent = `
 ::highlight(${HOVER_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
 ::highlight(${PINNED_NAME}) { background-color: rgba(234, 179, 8, 0.18); }
+::highlight(${LOOP_NAME}) { background-color: rgba(245, 158, 11, 0.42); }
+.${BUBBLE_CLASS}.playing > span {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+}
+html.dark .${BUBBLE_CLASS}.playing > span {
+  background: #3a2f12;
+  border-color: #b45309;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+}
 .${SENTENCE_CLASS}.${HOVER_CLASS} { background-color: rgba(234, 179, 8, 0.18); border-radius: 3px; }
 /* The translation is laid out as a "step": the first line starts under the
    sentence, later lines return to the column's left edge. The backing lives on
@@ -214,6 +232,7 @@ export function createSentenceBrowser(
   let rafPending = false;
 
   let pinned = params.pinned === true;
+  let loopEnabled = params.loop === true;
   /** True while restoring saved pins: those are already in the file. */
   let restoring = false;
   const pinnedSentences = new Map<string, PinnedSentence>();
@@ -630,6 +649,27 @@ export function createSentenceBrowser(
     if (on) void cache.ready.then(() => restorePins());
   }
 
+  /** Paint the repeating sentence — a warm highlight plus its translation
+   *  bubble — so it is distinguishable from the pinned wash around it. */
+  function syncLoopHighlight(): void {
+    const target = get(looping);
+    const key = target?.key.startsWith("s:") ? target.key.slice(2) : null;
+    let range: Range | null = null;
+    if (key) {
+      const pin = pinnedSentences.get(key);
+      if (pin?.entry.range) range = pin.entry.range;
+      else if (anchorEntry?.key === key && anchorEntry.range) range = anchorEntry.range;
+    }
+    if (useHighlight && highlightRegistry && HighlightCtor) {
+      if (range) highlightRegistry.set(LOOP_NAME, new HighlightCtor(range));
+      else highlightRegistry.delete(LOOP_NAME);
+    }
+    for (const pin of pinnedSentences.values()) {
+      pin.root.classList.toggle("playing", !!key && pin.entry.key === key);
+    }
+    hoverBubble.root.classList.toggle("playing", !!key && anchorEntry?.key === key);
+  }
+
   /** Alt+click always speaks; with the 朗读 option on, a plain left-click does too. */
   function wantsSpeech(event: MouseEvent): boolean {
     return event.altKey || get(glossarySettings).speakOnClick;
@@ -642,6 +682,17 @@ export function createSentenceBrowser(
   ): void {
     event.preventDefault();
     event.stopPropagation();
+    if (loopEnabled) {
+      const key = `s:${entry.key}`;
+      // A second click on the repeating sentence stops it; another sentence
+      // takes over the loop.
+      if (get(looping)?.key === key) {
+        stopLoop();
+        syncLoopHighlight();
+        return;
+      }
+      startLoop({ key, text: entry.text });
+    }
     if (pinned) {
       // Ctrl/Cmd+click is the only way to unpin one sentence.
       if (event.ctrlKey || event.metaKey) {
@@ -652,14 +703,17 @@ export function createSentenceBrowser(
       }
       if (wantsSpeech(event)) speakText(entry.text);
       pinSentence(entry);
+      syncLoopHighlight();
       return;
     }
     if (wantsSpeech(event)) {
       speakText(entry.text);
       void showBubble(entry, caret, false);
+      syncLoopHighlight();
       return;
     }
     void showBubble(entry, caret);
+    syncLoopHighlight();
   }
 
   function onMove(event: MouseEvent): void {
@@ -841,6 +895,7 @@ export function createSentenceBrowser(
   // A line-spacing change reflows the article without a resize event; the
   // bubble is positioned from its sentence's rect, so re-glue it.
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  const unsubscribeLoop = looping.subscribe(() => syncLoopHighlight());
   // Pins saved with this document come back once the file has been read; the
   // toggle may be flipped either before or after `ready` resolves.
   void cache.ready.then(() => restorePins());
@@ -858,6 +913,9 @@ export function createSentenceBrowser(
     setPinned(on: boolean) {
       setPinned(on);
     },
+    setLoop(on: boolean) {
+      loopEnabled = on;
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -871,6 +929,7 @@ export function createSentenceBrowser(
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
       window.removeEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+      unsubscribeLoop();
       if (!useHighlight) {
         if (idleHandle !== null) {
           const w = window as Window & { cancelIdleCallback?: (id: number) => void };
@@ -883,6 +942,7 @@ export function createSentenceBrowser(
       pinnedRanges.delete(pinnedOwner);
       rebuildPinnedHighlight();
       highlightRegistry?.delete(HOVER_NAME);
+      highlightRegistry?.delete(LOOP_NAME);
       hoverBubble.root.remove();
     },
   };
@@ -914,6 +974,7 @@ export function sentence(node: HTMLElement, params: SentenceParams) {
         next.tabId !== current.tabId ||
         next.filePath !== current.filePath;
       const pinChanged = !!next.pinned !== !!current.pinned;
+      const loopChanged = !!next.loop !== !!current.loop;
       current = next;
       if (changed) {
         stop();
@@ -921,6 +982,7 @@ export function sentence(node: HTMLElement, params: SentenceParams) {
         return;
       }
       if (pinChanged) browser?.setPinned(!!next.pinned);
+      if (loopChanged) browser?.setLoop(!!next.loop);
     },
     destroy() {
       stop();
