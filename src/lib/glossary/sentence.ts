@@ -701,12 +701,12 @@ export function createSentenceBrowser(
           return;
         }
       }
-      if (wantsSpeech(event)) speakText(entry.text);
+      if (wantsSpeech(event) && !loopEnabled) speakText(entry.text);
       pinSentence(entry);
       syncLoopHighlight();
       return;
     }
-    if (wantsSpeech(event)) {
+    if (wantsSpeech(event) && !loopEnabled) {
       speakText(entry.text);
       void showBubble(entry, caret, false);
       syncLoopHighlight();

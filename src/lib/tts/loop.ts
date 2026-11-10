@@ -33,7 +33,14 @@ export function startLoop(target: LoopTarget): void {
     if (current !== target) return;
     speakText(target.text, {
       onEnd: (completed) => {
-        if (!completed || current !== target) return;
+        if (current !== target) return;
+        if (!completed) {
+          // Something else took over playback (the toolbar player, a new
+          // request): end the loop too, so the highlight never stays on a
+          // target that is no longer sounding.
+          stopLoop();
+          return;
+        }
         // The breath before the next pass; every mode hears the same gap.
         timer = setTimeout(play, GAP_MS);
       },

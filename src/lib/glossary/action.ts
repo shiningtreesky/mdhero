@@ -634,13 +634,13 @@ export function createGlossaryBrowser(
         if (entry) removePinned(entry);
         return;
       }
-      if (wantsSpeech(event)) speakText(token.word);
+      if (wantsSpeech(event) && !loopEnabled) speakText(token.word);
       pinWord(node, token, range, occurrenceOf(node, token));
       syncLoopHighlight();
       return;
     }
 
-    if (wantsSpeech(event)) {
+    if (wantsSpeech(event) && !loopEnabled) {
       // Keep the bubble open on repeated clicks so the definition stays visible
       // while the word is read again.
       speakText(token.word);
