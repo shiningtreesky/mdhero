@@ -1,5 +1,6 @@
 import { get, writable } from "svelte/store";
 import { tabStore } from "$lib/stores/tabs";
+import { loopSpeech } from "$lib/stores/loopSpeech";
 import { setTtsSpeed, ttsSettings } from "$lib/stores/tts";
 import { showToast } from "$lib/stores/toast";
 import { translate } from "$lib/i18n";
@@ -230,6 +231,17 @@ function reportError(error: unknown): void {
   );
 }
 
+/** The breath between passes of the whole-document loop, matching 段/句/词. */
+const LOOP_GAP_MS = 700;
+let restartTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelRestart(): void {
+  if (restartTimer !== null) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+}
+
 const player = new SpeechPlayer({
   onState: (state) => {
     speechState.set(state);
@@ -248,7 +260,30 @@ const player = new SpeechPlayer({
     });
     publishSentence(value.position);
   },
+  // Whole-document loop: with the loop toggle on, a run that reached its end
+  // starts over after the same breath the reading-mode loops use. A stop,
+  // pause or tab switch never comes through here.
+  onEnded: () => {
+    cancelRestart();
+    if (!get(loopSpeech)) return;
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (!get(loopSpeech) || isActive()) return;
+      void startSpeech().catch((error) => {
+        cancelCurrentRun();
+        reportError(error);
+      });
+    }, LOOP_GAP_MS);
+  },
   onError: reportError,
+});
+
+// Turning the loop off stops the document at once (the reader asked for that,
+// rather than "finish this pass"); turning it on only arms the next finish.
+loopSpeech.subscribe((on) => {
+  if (on) return;
+  cancelRestart();
+  if (isActive()) stopSpeech();
 });
 
 function isActive(): boolean {
@@ -258,6 +293,9 @@ function isActive(): boolean {
 /** Returns once the abandoned part file is gone, so a restart never races it. */
 function cancelCurrentRun(): Promise<void> {
   runId++;
+  // Any explicit stop also cancels a pending loop restart: pressing stop during
+  // the breath must not have the next pass start under it.
+  cancelRestart();
   if (activeAbort) {
     activeAbort.abort();
     activeAbort = null;

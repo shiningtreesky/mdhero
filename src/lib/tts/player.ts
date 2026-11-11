@@ -28,6 +28,8 @@ export interface SpeechPlayerOptions {
   onState: (state: PlaybackState) => void;
   onProgress: (progress: PlaybackProgress) => void;
   onError: (error: unknown) => void;
+  /** The whole run played to its end (not a stop, pause or seek). */
+  onEnded?: () => void;
 }
 
 interface Segment {
@@ -204,6 +206,7 @@ export class SpeechPlayer {
     this.resetState();
     this.emit("idle");
     this.options.onProgress({ position: 0, duration: 0, complete: false });
+    this.options.onEnded?.();
   }
 
   private detachSource(): void {
