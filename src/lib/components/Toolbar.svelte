@@ -18,6 +18,12 @@
   import { Cog } from "@lucide/svelte";
   import { speechState, toggleSpeech, changeSpeechSpeed } from "$lib/tts/speech";
   import { setTtsHighlight, ttsSettings } from "$lib/stores/tts";
+  import {
+    LOOP_GAP_DEFAULT,
+    LOOP_GAP_MAX,
+    LOOP_GAP_MIN,
+    loopGap,
+  } from "$lib/stores/loopSpeech";
   import { TTS_MAX_SPEED, TTS_MIN_SPEED, TTS_SPEED_STEP } from "$lib/utils/tts";
 
   let {
@@ -206,6 +212,9 @@
   let showSpeechMenu = $state(false);
   /** Right-click menu of the 段 button ("回答模式" / "朗读"). */
   let showParasMenu = $state(false);
+  /** Loop button's right-click panel: the breath between passes, in seconds. */
+  let showLoopMenu = $state(false);
+  let loopGapInput = $state(String(LOOP_GAP_DEFAULT));
   let copyFeedback = $state("");
 
   let leftConcealTitle = $derived(
@@ -237,12 +246,39 @@
             : $t("toolbar.readAloud"),
   );
 
+  /** Closing the loop panel commits what was typed: removing it from the DOM
+   *  does not fire blur, so a value typed before clicking elsewhere would
+   *  otherwise be lost. */
+  function closeLoopMenu() {
+    if (showLoopMenu) commitLoopGap();
+    showLoopMenu = false;
+  }
+
   function closeAll() {
     showReaderControls = false;
     showCopyMenu = false;
     showSpeedPopover = false;
     showSpeechMenu = false;
     showParasMenu = false;
+    closeLoopMenu();
+  }
+
+  /** Right-click on the loop button opens its settings instead of toggling. */
+  function handleLoopContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = !showLoopMenu;
+    closeAll();
+    if (next) loopGapInput = String($loopGap);
+    showLoopMenu = next;
+  }
+
+  /** Blur/Enter: clamp to 0.1–5 s, fall back to 0.7 for junk, mirror it back. */
+  function commitLoopGap() {
+    const raw = loopGapInput.trim();
+    const parsed = raw === "" ? Number.NaN : Number(raw);
+    loopGap.set(Number.isFinite(parsed) ? parsed : LOOP_GAP_DEFAULT);
+    loopGapInput = String($loopGap);
   }
 
   function toggleReaderControls() {
@@ -395,12 +431,14 @@
 
   /** Clicks inside the menu keep it open; anything else closes it. */
   function handleOutsidePointerDown(event: PointerEvent) {
-    if (!showSpeechMenu && !showParasMenu) return;
+    if (!showSpeechMenu && !showParasMenu && !showLoopMenu) return;
     const target = event.target as Element | null;
     if (showSpeechMenu && target?.closest?.(".speech-group")) return;
     if (showParasMenu && target?.closest?.(".paras-group")) return;
+    if (showLoopMenu && target?.closest?.(".loop-group")) return;
     showSpeechMenu = false;
     showParasMenu = false;
+    closeLoopMenu();
   }
 
   // Same gesture on 对比提交: short press submits, long press / right-click
@@ -743,23 +781,51 @@
     </button>
 
     <!-- Loop listening: clicking a word, sentence or paragraph repeats it with
-         a breath between passes until clicked again. -->
-    <button
-      class="btn gloss-btn gloss-loop-btn"
-      class:active={loopActive}
-      disabled={!canLoop}
-      title={loopTitle}
-      aria-label={$t('toolbar.loop')}
-      aria-pressed={loopActive}
-      onclick={onToggleLoop}
-    >
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M17 2l4 4-4 4" />
-        <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-        <path d="M7 22l-4-4 4-4" />
-        <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-      </svg>
-    </button>
+         a breath between passes until clicked again. Right-click opens the
+         breath length. -->
+    <div class="loop-group">
+      <button
+        class="btn gloss-btn gloss-loop-btn"
+        class:active={loopActive}
+        disabled={!canLoop}
+        title={loopTitle}
+        aria-label={$t('toolbar.loop')}
+        aria-pressed={loopActive}
+        aria-haspopup="true"
+        aria-expanded={showLoopMenu}
+        onclick={onToggleLoop}
+        oncontextmenu={handleLoopContextMenu}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M17 2l4 4-4 4" />
+          <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+          <path d="M7 22l-4-4 4-4" />
+          <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+        </svg>
+      </button>
+      {#if showLoopMenu}
+        <div class="speech-menu loop-menu" role="menu" aria-label={$t('toolbar.loopMenu')}>
+          <label class="loop-gap-field">
+            <span>{$t('toolbar.loopGap')}</span>
+            <input
+              class="loop-gap-input"
+              type="number"
+              min={LOOP_GAP_MIN}
+              max={LOOP_GAP_MAX}
+              step="0.1"
+              value={loopGapInput}
+              oninput={(event) => (loopGapInput = event.currentTarget.value)}
+              onchange={commitLoopGap}
+              onblur={commitLoopGap}
+              onkeydown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+            <span class="loop-gap-unit">{$t('toolbar.loopGapUnit')}</span>
+          </label>
+        </div>
+      {/if}
+    </div>
 
     <div class="separator"></div>
 
@@ -1244,6 +1310,52 @@
   .paras-group {
     position: relative;
     display: inline-flex;
+  }
+
+  .loop-group {
+    position: relative;
+    display: inline-flex;
+  }
+
+  /* Opens toward the left edge of the button: it sits near the right end. */
+  .loop-menu {
+    left: auto;
+    right: 0;
+    min-width: 168px;
+  }
+
+  .loop-gap-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: #1c1c1e;
+    white-space: nowrap;
+  }
+
+  :global(html.dark) .loop-gap-field {
+    color: #e5e5e7;
+  }
+
+  .loop-gap-input {
+    width: 58px;
+    padding: 3px 6px;
+    border: 1px solid #d1d1d6;
+    border-radius: 5px;
+    font-size: 12px;
+    color: #1c1c1e;
+    background: white;
+  }
+
+  :global(html.dark) .loop-gap-input {
+    color: #e5e5e7;
+    background: #1c1c1e;
+    border-color: #3a3a3c;
+  }
+
+  .loop-gap-unit {
+    color: #8e8e93;
   }
 
   .speech-menu-action {

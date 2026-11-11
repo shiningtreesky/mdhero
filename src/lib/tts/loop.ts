@@ -1,4 +1,5 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
+import { loopGap } from "$lib/stores/loopSpeech";
 import { speakText, stopTextSpeech } from "./word";
 
 /** What is repeating right now: the reading mode's own key plus the text.
@@ -10,8 +11,10 @@ export interface LoopTarget {
 
 export const looping = writable<LoopTarget | null>(null);
 
-/** Breath between repeats: long enough that two passes are heard as two. */
-const GAP_MS = 700;
+/** Breath between repeats, read from the user setting (default 0.7 s). */
+function gapMs(): number {
+  return Math.round(get(loopGap) * 1000);
+}
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let current: LoopTarget | null = null;
@@ -42,7 +45,7 @@ export function startLoop(target: LoopTarget): void {
           return;
         }
         // The breath before the next pass; every mode hears the same gap.
-        timer = setTimeout(play, GAP_MS);
+        timer = setTimeout(play, gapMs());
       },
     });
   };

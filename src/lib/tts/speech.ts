@@ -1,6 +1,6 @@
 import { get, writable } from "svelte/store";
 import { tabStore } from "$lib/stores/tabs";
-import { loopSpeech } from "$lib/stores/loopSpeech";
+import { loopGap, loopSpeech } from "$lib/stores/loopSpeech";
 import { setTtsSpeed, ttsSettings } from "$lib/stores/tts";
 import { showToast } from "$lib/stores/toast";
 import { translate } from "$lib/i18n";
@@ -231,8 +231,6 @@ function reportError(error: unknown): void {
   );
 }
 
-/** The breath between passes of the whole-document loop, matching 段/句/词. */
-const LOOP_GAP_MS = 700;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function cancelRestart(): void {
@@ -273,7 +271,7 @@ const player = new SpeechPlayer({
         cancelCurrentRun();
         reportError(error);
       });
-    }, LOOP_GAP_MS);
+    }, Math.round(get(loopGap) * 1000));
   },
   onError: reportError,
 });
