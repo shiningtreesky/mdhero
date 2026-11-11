@@ -103,7 +103,11 @@
   import { sentence as sentenceAction } from "$lib/glossary/sentence";
   import { isEnglishDocument } from "$lib/utils/glossary";
   import { parasMode } from "$lib/stores/parasMode";
-  import { parasAnswerMode, parasSpeak } from "$lib/stores/parasReading";
+  import {
+    parasAnswerMode,
+    parasSpeak,
+    parasShowTranslation,
+  } from "$lib/stores/parasReading";
   import { paras as parasAction } from "$lib/paras/action";
   import { paragraphReading } from "$lib/glossary/paragraph";
   import {
@@ -1883,8 +1887,10 @@
       {parasTitle}
       parasAnswerMode={$parasAnswerMode}
       parasSpeak={$parasSpeak}
+      parasShowTranslation={$parasShowTranslation}
       onToggleParasAnswer={(on) => parasAnswerMode.set(on)}
       onToggleParasSpeak={(on) => parasSpeak.set(on)}
+      onToggleParasShowTranslation={(on) => parasShowTranslation.set(on)}
       lineSpacingEnabled={pinActive || ($parasMode && !$parasAnswerMode)}
       parasTranslated={parasStats.translated}
       parasTotal={parasStats.total}
@@ -2068,6 +2074,7 @@
           filePath: leftTab?.filePath ?? null,
           speak: $parasSpeak,
           loop: $loopSpeech,
+          showTranslation: $parasShowTranslation,
         }}
         use:speechHighlight={{ tabId: leftTab?.id ?? null, name: "mdhero-speech-left" }}
       >
@@ -2125,6 +2132,7 @@
         filePath: rightTab?.filePath ?? null,
         speak: $parasSpeak,
         loop: $loopSpeech,
+        showTranslation: $parasShowTranslation,
       }}
       use:speechHighlight={{ tabId: rightTab?.id ?? null, name: "mdhero-speech-right" }}
     >

@@ -44,12 +44,15 @@ export interface ParagraphReadingParams {
   speak?: boolean;
   /** Repeat clicked paragraphs until clicked again. */
   loop?: boolean;
+  /** Paint the translation bubble; off still translates and caches. */
+  showTranslation?: boolean;
 }
 
 interface Browser {
   destroy(): void;
   setSpeak(on: boolean): void;
   setLoop(on: boolean): void;
+  setShowTranslation(on: boolean): void;
 }
 
 interface PinnedParagraph {
@@ -180,6 +183,7 @@ export function createParagraphReadingBrowser(
   let destroyed = false;
   let speak = params.speak === true;
   let loopEnabled = params.loop === true;
+  let showTranslation = params.showTranslation !== false;
   let state: ReadingState = emptyState();
   let unitByIndex = new Map<number, ParagraphEntry>();
   let unitByElement = new Map<HTMLElement, ParagraphEntry>();
@@ -327,7 +331,7 @@ export function createParagraphReadingBrowser(
     const placed: DOMRect[] = [];
     const lineHeight = parseFloat(getComputedStyle(article).lineHeight) || 20;
     for (const pin of pinned.values()) {
-      if (pin.hidden) {
+      if (pin.hidden || !showTranslation) {
         pin.root.style.display = "none";
         continue;
       }
@@ -380,6 +384,9 @@ export function createParagraphReadingBrowser(
     document.body.appendChild(root);
     const pin: PinnedParagraph = { entry, root, text, hidden: false, requestToken: 0 };
     pinned.set(entry.index, pin);
+    // 显示译文 off: the bubble still exists (so the translation is fetched and
+    // cached) but it is never painted.
+    if (!showTranslation) root.style.display = "none";
     void fillBubble(pin).then(() => {
       if (!destroyed) positionPinned();
     });
@@ -485,8 +492,12 @@ export function createParagraphReadingBrowser(
       const pin = pinned.get(entry.index);
       if (pin) {
         pin.hidden = false;
-        pin.root.style.display = "block";
-        positionPinned();
+        // With 显示译文 off the bubble stays invisible: the translation is
+        // still fetched and cached, only the paint is suppressed.
+        if (showTranslation) {
+          pin.root.style.display = "block";
+          positionPinned();
+        }
       }
       if (speak && entry.text && !loopEnabled) speakText(entry.text);
       syncLoopHighlight();
@@ -530,6 +541,14 @@ export function createParagraphReadingBrowser(
     },
     setLoop(on: boolean) {
       loopEnabled = on;
+    },
+    setShowTranslation(on: boolean) {
+      if (showTranslation === on) return;
+      showTranslation = on;
+      for (const pin of pinned.values()) {
+        pin.root.style.display = on && !pin.hidden ? "block" : "none";
+      }
+      if (on) positionPinned();
     },
     destroy() {
       destroyed = true;
@@ -576,6 +595,8 @@ export function paragraphReading(node: HTMLElement, params: ParagraphReadingPara
         next.filePath !== current.filePath;
       const speakChanged = !!next.speak !== !!current.speak;
       const loopChanged = !!next.loop !== !!current.loop;
+      const showChanged =
+        (next.showTranslation !== false) !== (current.showTranslation !== false);
       current = next;
       if (changed) {
         stop();
@@ -584,6 +605,7 @@ export function paragraphReading(node: HTMLElement, params: ParagraphReadingPara
       }
       if (speakChanged) browser?.setSpeak(!!next.speak);
       if (loopChanged) browser?.setLoop(!!next.loop);
+      if (showChanged) browser?.setShowTranslation(next.showTranslation !== false);
     },
     destroy() {
       stop();

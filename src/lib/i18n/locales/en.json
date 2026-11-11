@@ -101,6 +101,7 @@
     "parasMenu": "Paragraph mode options",
     "parasAnswerMode": "Answer mode",
     "parasReadAloud": "Read aloud",
+    "parasShowTranslation": "Show translation",
     "parasOn": "Paragraph mode: on (click to turn off)",
     "parasOff": "Paragraph mode: off (click to turn on)",
     "parasDisabledMode": "Paragraph mode needs the dual reading view (no source pane)",

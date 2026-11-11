@@ -101,6 +101,7 @@
     "parasMenu": "Opciones del modo párrafo",
     "parasAnswerMode": "Modo respuesta",
     "parasReadAloud": "Leer en voz alta",
+    "parasShowTranslation": "Mostrar traducción",
     "parasOn": "Modo párrafo: activado (clic para desactivar)",
     "parasOff": "Modo párrafo: desactivado (clic para activar)",
     "parasDisabledMode": "El modo párrafo necesita la vista de lectura a dos columnas (sin código fuente)",

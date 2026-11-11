@@ -101,6 +101,7 @@
     "parasMenu": "Absatzmodus-Optionen",
     "parasAnswerMode": "Antwortmodus",
     "parasReadAloud": "Vorlesen",
+    "parasShowTranslation": "Übersetzung anzeigen",
     "parasOn": "Absatzmodus: an (klicken zum Ausschalten)",
     "parasOff": "Absatzmodus: aus (klicken zum Einschalten)",
     "parasDisabledMode": "Der Absatzmodus benötigt die Zweispalten-Leseansicht (ohne Quelltext)",

@@ -83,8 +83,10 @@
     /** 段: answer mode (cards + grading) vs reading whole paragraphs. */
     parasAnswerMode = false,
     parasSpeak = false,
+    parasShowTranslation = true,
     onToggleParasAnswer = (_on: boolean) => {},
     onToggleParasSpeak = (_on: boolean) => {},
+    onToggleParasShowTranslation = (_on: boolean) => {},
     /** Line spacing is adjustable while 词/句 pins or 段 reading are active. */
     lineSpacingEnabled = false,
     /** Paragraph reading ("段") mode: mutually exclusive with 句 and 词. */
@@ -167,8 +169,10 @@
     /** 段: answer mode (cards + grading) vs reading whole paragraphs. */
     parasAnswerMode?: boolean;
     parasSpeak?: boolean;
+    parasShowTranslation?: boolean;
     onToggleParasAnswer?: (on: boolean) => void;
     onToggleParasSpeak?: (on: boolean) => void;
+    onToggleParasShowTranslation?: (on: boolean) => void;
     /** Line spacing is adjustable while 词/句 pins or 段 reading are active. */
     lineSpacingEnabled?: boolean;
     canParas?: boolean;
@@ -653,6 +657,14 @@
               onchange={(event) => onToggleParasSpeak(event.currentTarget.checked)}
             />
             <span>{$t('toolbar.parasReadAloud')}</span>
+          </label>
+          <label class="speech-menu-item">
+            <input
+              type="checkbox"
+              checked={parasShowTranslation}
+              onchange={(event) => onToggleParasShowTranslation(event.currentTarget.checked)}
+            />
+            <span>{$t('toolbar.parasShowTranslation')}</span>
           </label>
           <button
             type="button"

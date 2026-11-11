@@ -6,6 +6,7 @@ import { writable } from "svelte/store";
  *  Both toggles live in the 段 button's right-click menu and persist. */
 const ANSWER_KEY = "mdhero:paras-answer";
 const SPEAK_KEY = "mdhero:paras-speak";
+const SHOW_KEY = "mdhero:paras-show-translation";
 
 function readFlag(key: string, fallback: boolean): boolean {
   try {
@@ -46,3 +47,8 @@ export const parasAnswerMode = createFlag(ANSWER_KEY, false);
 
 /** Reading mode: clicking a paragraph also reads it aloud. */
 export const parasSpeak = createFlag(SPEAK_KEY, true);
+
+/** Reading mode: show the Chinese translation bubble under each paragraph.
+ *  Off still translates and caches — the bubble is simply not painted, so a
+ *  long translation cannot cover the paragraph below it. */
+export const parasShowTranslation = createFlag(SHOW_KEY, true);
