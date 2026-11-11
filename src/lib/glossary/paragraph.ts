@@ -474,8 +474,21 @@ export function createParagraphReadingBrowser(
       startLoop({ key, text: entry.text });
     }
     if (pinned.has(entry.index)) {
-      if (event.ctrlKey || event.metaKey) removePinned(entry.index);
-      else togglePinned(entry.index);
+      // Ctrl/Cmd+click unpins. A plain click on a pinned paragraph reads it
+      // again and keeps the translation on screen — clicking twice should mean
+      // "say it once more", not "hide the bubble".
+      if (event.ctrlKey || event.metaKey) {
+        removePinned(entry.index);
+        syncLoopHighlight();
+        return;
+      }
+      const pin = pinned.get(entry.index);
+      if (pin) {
+        pin.hidden = false;
+        pin.root.style.display = "block";
+        positionPinned();
+      }
+      if (speak && entry.text && !loopEnabled) speakText(entry.text);
       syncLoopHighlight();
       return;
     }

@@ -1,7 +1,7 @@
 import { get } from "svelte/store";
 import { translate } from "$lib/i18n";
 import { glossarySettings } from "$lib/stores/glossarySettings";
-import { LAYOUT_CHANGE_EVENT } from "$lib/utils/layout";
+import { LAYOUT_CHANGE_EVENT, PIN_ALL_SENTENCES_EVENT } from "$lib/utils/layout";
 import { showToast } from "$lib/stores/toast";
 import { speakText } from "$lib/tts/word";
 import { collectParagraphs, UNIT_SELECTOR } from "$lib/utils/paragraphs";
@@ -54,6 +54,8 @@ export interface SentenceParams {
   pinned?: boolean;
   /** Repeat clicked sentences until clicked again. */
   loop?: boolean;
+  /** Bumped by the 句 button: pin and translate every sentence in this pane. */
+  pinAll?: number;
 }
 
 /** A sentence whose translation stays on screen, like a pinned word. */
@@ -103,6 +105,8 @@ interface Browser {
   destroy(): void;
   setPinned(on: boolean): void;
   setLoop(on: boolean): void;
+  /** Pin and translate every sentence of this pane, one at a time. */
+  pinAll(): void;
 }
 
 function injectStyles(): void {
@@ -556,14 +560,16 @@ export function createSentenceBrowser(
     );
   }
 
-  function pinSentence(entry: SentenceEntry): void {
-    if (!entry.range || !entry.key) return;
+  /** Create the bubble for a sentence. `fill` is false when the caller wants to
+   *  await the translation itself (the 一键钉住 pass below). */
+  function pinSentence(entry: SentenceEntry, fill = true): PinnedSentence | null {
+    if (!entry.range || !entry.key) return null;
     const existing = pinnedSentences.get(entry.key);
     if (existing) {
       existing.hiddenByUser = false;
       existing.root.style.display = "block";
       positionPinned();
-      return;
+      return existing;
     }
 
     const target = createSentenceBubble();
@@ -575,15 +581,47 @@ export function createSentenceBrowser(
       requestToken: 0,
     };
     pinnedSentences.set(entry.key, pin);
-    const request = ++pin.requestToken;
-    void fillBubble(
-      target,
-      entry,
-      () => pinnedSentences.get(entry.key) === pin && pin.requestToken === request,
-    ).then(() => positionPinned());
+    if (fill) {
+      const request = ++pin.requestToken;
+      void fillBubble(
+        target,
+        entry,
+        () => pinnedSentences.get(entry.key) === pin && pin.requestToken === request,
+      ).then(() => positionPinned());
+    }
     refreshPinnedRanges();
     positionPinned();
     if (!restoring) persistPins();
+    return pin;
+  }
+
+  /** 句 button: pin every sentence of this pane, one translation at a time.
+   *  Sequential on purpose — a document's sentences go through the endpoint in
+   *  reading order instead of a burst of parallel requests. */
+  let pinningAll = false;
+
+  async function pinAllSentences(): Promise<void> {
+    if (destroyed || pinningAll || !pinned) return;
+    pinningAll = true;
+    // Batch: `pinSentence` skips the per-sentence file write, one write follows.
+    restoring = true;
+    try {
+      for (const unit of units) {
+        for (const entry of sentencesFor(unit.element)) {
+          if (destroyed) return;
+          if (!entry.range || !entry.key || pinnedSentences.has(entry.key)) continue;
+          const pin = pinSentence(entry, false);
+          if (!pin) continue;
+          await fillBubble(pin, entry, () => pinnedSentences.get(entry.key) === pin);
+          if (destroyed) return;
+          positionPinned();
+        }
+      }
+    } finally {
+      restoring = false;
+      pinningAll = false;
+      if (!destroyed) persistPins();
+    }
   }
 
   function removePinnedSentence(key: string): void {
@@ -895,6 +933,13 @@ export function createSentenceBrowser(
   // A line-spacing change reflows the article without a resize event; the
   // bubble is positioned from its sentence's rect, so re-glue it.
   window.addEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+  // The 句 button: only the pane showing that tab answers.
+  function onPinAllRequest(event: Event): void {
+    const detail = (event as CustomEvent<{ tabId?: string | null }>).detail;
+    if (!params.tabId || detail?.tabId !== params.tabId) return;
+    void pinAllSentences();
+  }
+  window.addEventListener(PIN_ALL_SENTENCES_EVENT, onPinAllRequest);
   const unsubscribeLoop = looping.subscribe(() => syncLoopHighlight());
   // Pins saved with this document come back once the file has been read; the
   // toggle may be flipped either before or after `ready` resolves.
@@ -916,6 +961,9 @@ export function createSentenceBrowser(
     setLoop(on: boolean) {
       loopEnabled = on;
     },
+    pinAll() {
+      void pinAllSentences();
+    },
     destroy() {
       destroyed = true;
       observer.disconnect();
@@ -929,6 +977,7 @@ export function createSentenceBrowser(
       window.removeEventListener("scroll", schedulePosition, true);
       window.removeEventListener("resize", schedulePosition);
       window.removeEventListener(LAYOUT_CHANGE_EVENT, schedulePosition);
+      window.removeEventListener(PIN_ALL_SENTENCES_EVENT, onPinAllRequest);
       unsubscribeLoop();
       if (!useHighlight) {
         if (idleHandle !== null) {
@@ -975,6 +1024,7 @@ export function sentence(node: HTMLElement, params: SentenceParams) {
         next.filePath !== current.filePath;
       const pinChanged = !!next.pinned !== !!current.pinned;
       const loopChanged = !!next.loop !== !!current.loop;
+      const pinAllBumped = (next.pinAll ?? 0) !== (current.pinAll ?? 0);
       current = next;
       if (changed) {
         stop();
@@ -983,6 +1033,7 @@ export function sentence(node: HTMLElement, params: SentenceParams) {
       }
       if (pinChanged) browser?.setPinned(!!next.pinned);
       if (loopChanged) browser?.setLoop(!!next.loop);
+      if (pinAllBumped) browser?.pinAll();
     },
     destroy() {
       stop();

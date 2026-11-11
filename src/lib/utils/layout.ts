@@ -54,3 +54,18 @@ export function notifyLayoutChange(): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(LAYOUT_CHANGE_EVENT));
 }
+
+/**
+ * The 句 button asks the pane showing `tabId` to pin and translate every
+ * sentence. Carried as an event rather than an action parameter: the token
+ * would also change when focus moves between panes, pinning a document nobody
+ * pressed the button on.
+ */
+export const PIN_ALL_SENTENCES_EVENT = "mdhero:pin-all-sentences";
+
+export function requestPinAllSentences(tabId: string | null): void {
+  if (typeof window === "undefined" || !tabId) return;
+  window.dispatchEvent(
+    new CustomEvent(PIN_ALL_SENTENCES_EVENT, { detail: { tabId } }),
+  );
+}

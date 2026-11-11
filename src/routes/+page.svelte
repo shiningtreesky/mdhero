@@ -72,7 +72,12 @@
   import { getCurrentSourceLine, scrollToSourceLine, type ViewMode } from "$lib/utils/scroll-sync";
   import { gutterHtml, gutterWidth, lineCount } from "$lib/utils/line-gutter";
   import { createWheelZoom } from "$lib/utils/wheel-zoom";
-  import { chromeTopFor, chromeTop, sideTabsWidth } from "$lib/utils/layout";
+  import {
+  chromeTopFor,
+  chromeTop,
+  sideTabsWidth,
+  requestPinAllSentences,
+} from "$lib/utils/layout";
   import { focusedPane, rightPaneOpen } from "$lib/stores/panes";
   import {
     concealedTabs,
@@ -365,6 +370,7 @@
 
   let pinActive = $derived($sentenceMode ? $sentencePinMode : $glossPinMode);
   let pinAvailable = $derived(canGloss && isDiskCacheablePath(activeTab?.filePath ?? null));
+
   let pinTitle = $derived(
     !isDiskCacheablePath(activeTab?.filePath ?? null)
       ? $t("toolbar.glossPinNeedsFile")
@@ -389,6 +395,25 @@
           ? $t("toolbar.sentenceOn")
           : $t("toolbar.sentenceOff"),
   );
+
+  // 句 button: pin and translate every sentence of the active document in one
+  // go. It only makes sense once 句 mode and its pin toggle are already on, and
+  // only for a document saved to disk (the pins live in its cache file).
+  let canPinAllSentences = $derived(
+    canSentence && $sentenceMode && $sentencePinMode && pinAvailable,
+  );
+  let pinAllSentencesTitle = $derived(
+    !$sentenceMode || !$sentencePinMode
+      ? $t("toolbar.pinAllNeedsPin")
+      : !pinAvailable
+        ? $t("toolbar.glossPinNeedsFile")
+        : $t("toolbar.pinAllSentencesTitle"),
+  );
+
+  function handlePinAllSentences(): void {
+    if (!canPinAllSentences) return;
+    requestPinAllSentences(activeTab?.id ?? null);
+  }
 
   // Paragraph ("段") mode reuses the same gates as 词: the two only make sense
   // in the dual reading layout with an English article, and they are mutually
@@ -1864,6 +1889,9 @@
       parasTranslated={parasStats.translated}
       parasTotal={parasStats.total}
       onToggleParas={handleToggleParas}
+      {canPinAllSentences}
+      {pinAllSentencesTitle}
+      onPinAllSentences={handlePinAllSentences}
       canScore={canScore}
       {scoring}
       {scoreTitle}

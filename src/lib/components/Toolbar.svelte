@@ -94,6 +94,10 @@
     parasTranslated = 0,
     parasTotal = 0,
     onToggleParas = () => {},
+    /** 句: pin and translate every sentence of the active document at once. */
+    canPinAllSentences = false,
+    pinAllSentencesTitle = "",
+    onPinAllSentences = () => {},
     /** 对比提交: scores every translated paragraph in one request. */
     canScore = false,
     scoring = false,
@@ -174,6 +178,10 @@
     parasTranslated?: number;
     parasTotal?: number;
     onToggleParas?: () => void;
+    /** 句: pin and translate every sentence of the active document at once. */
+    canPinAllSentences?: boolean;
+    pinAllSentencesTitle?: string;
+    onPinAllSentences?: () => void;
     canScore?: boolean;
     scoring?: boolean;
     scoreTitle?: string;
@@ -596,6 +604,17 @@
       onpointercancel={cancelScorePress}
       oncontextmenu={handleScoreContextMenu}
     >{#if scoring}{$t('toolbar.grading')}{:else}{$t('toolbar.score')}{/if}</button>
+
+    <!-- 句: one click pins and translates every sentence of the active document,
+         for readers who would otherwise click each sentence by hand. Blue like
+         the view/dual switcher, not the amber 句 mode button. -->
+    <button
+      class="btn gloss-btn sentence-all-btn"
+      disabled={!canPinAllSentences}
+      title={pinAllSentencesTitle}
+      aria-label={$t('toolbar.pinAllSentencesTitle')}
+      onclick={onPinAllSentences}
+    >{$t('toolbar.pinAllSentences')}</button>
 
     <!-- Paragraph ("段") mode. Right-click opens its own menu: 回答模式 switches
          between the card/grading workflow and whole-paragraph reading. -->
@@ -1465,6 +1484,26 @@
   .gloss-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  /* 句 button: same box as 段/句/词/音, blue text instead of the amber mode
+     treatment. The extra classes keep it blue through the shared hover rule. */
+  .btn.gloss-btn.sentence-all-btn {
+    color: #0891b2;
+  }
+
+  .btn.gloss-btn.sentence-all-btn:hover:not(:disabled) {
+    color: #0891b2;
+    background: rgba(8, 145, 178, 0.1);
+  }
+
+  :global(html.dark) .btn.gloss-btn.sentence-all-btn {
+    color: #22b8d4;
+  }
+
+  :global(html.dark) .btn.gloss-btn.sentence-all-btn:hover:not(:disabled) {
+    color: #22b8d4;
+    background: rgba(34, 184, 212, 0.16);
   }
 
   /* The pin shares the 词 group's amber active state but holds only an icon. */
