@@ -14,15 +14,21 @@ describe("save availability", () => {
     expect(canSaveTab(tab("/docs/notes.md", true))).toBe(true);
   });
 
-  it("keeps Save disabled for a clean file, paste/url tabs and no tab", () => {
+  it("enables Save for a pasted document, which was never written anywhere", () => {
+    const pasted = tab("paste://1760000000000-0", false);
+    expect(needsSaveAs(pasted)).toBe(true);
+    expect(canSaveTab(pasted)).toBe(true);
+  });
+
+  it("keeps Save disabled for a clean file, a url tab and no tab", () => {
     expect(canSaveTab(tab("/docs/notes.md", false))).toBe(false);
-    expect(canSaveTab(tab("paste://1", false))).toBe(false);
     expect(canSaveTab(tab("url://https://example.com", false))).toBe(false);
     expect(canSaveTab(null)).toBe(false);
   });
 
-  it("only treats new:// tabs as Save As targets", () => {
+  it("treats new:// and paste:// tabs as Save As targets", () => {
     expect(needsSaveAs(tab("new://1", true))).toBe(true);
+    expect(needsSaveAs(tab("paste://1", false))).toBe(true);
     expect(needsSaveAs(tab("/docs/new.md", true))).toBe(false);
     expect(needsSaveAs(null)).toBe(false);
   });

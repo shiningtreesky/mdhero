@@ -1656,6 +1656,17 @@
         handleTogglePhonetic();
         return;
       }
+      // `5`/`6` drive the two toggle buttons beside the mode buttons; each
+      // handler keeps its own availability check (pin needs a saved document,
+      // loop needs a reading mode available).
+      if (readingMode === "pin") {
+        handleToggleGlossPin();
+        return;
+      }
+      if (readingMode === "loop") {
+        handleToggleLoop();
+        return;
+      }
       if (readingMode === "gloss") {
         // `3` while already in 词 mode leaves the 音 view but keeps the mode.
         if ($glossaryMode && $wordPhoneticView) wordPhoneticView.set(false);

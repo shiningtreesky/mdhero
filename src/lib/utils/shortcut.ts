@@ -67,13 +67,19 @@ const CODE_LABELS: Record<string, string> = {
   Insert: "Insert",
 };
 
-/** The three mutually exclusive reading modes, plus 词's IPA view. */
-export type ReadingModeTarget = "paras" | "sentence" | "gloss" | "phonetic";
+/** The reading modes, 词's IPA view, and the two toggle buttons beside them. */
+export type ReadingModeTarget =
+  | "paras"
+  | "sentence"
+  | "gloss"
+  | "phonetic"
+  | "pin"
+  | "loop";
 
 /**
- * Main-row `1`/`2`/`3`/`4` select 段/句/词/音. Matching on the physical `code`
- * keeps the binding on the same keys under non-QWERTY layouts; numpad digits
- * and every other key return null.
+ * Main-row `1`–`6` select 段/句/词/音/钉住/循环. Matching on the physical
+ * `code` keeps the binding on the same keys under non-QWERTY layouts; numpad
+ * digits and every other key return null.
  */
 export function readingModeForCode(code: string): ReadingModeTarget | null {
   switch (code) {
@@ -85,6 +91,10 @@ export function readingModeForCode(code: string): ReadingModeTarget | null {
       return "gloss";
     case "Digit4":
       return "phonetic";
+    case "Digit5":
+      return "pin";
+    case "Digit6":
+      return "loop";
     default:
       return null;
   }
