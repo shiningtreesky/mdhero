@@ -745,21 +745,16 @@
   // 段, 句 and 词 are mutually exclusive: all three decorate the same article,
   // and turning one on clears the others' highlights, bubbles and click
   // interception.
+  // 段 can now run together with 词 or 句: listening to a whole paragraph while
+  // its words (or sentences) are annotated is the point. 词 and 句 stay
+  // mutually exclusive.
   function handleToggleParas(): void {
-    const next = !$parasMode;
-    if (next) {
-      glossaryMode.set(false);
-      sentenceMode.set(false);
-    }
-    parasMode.set(next);
+    parasMode.set(!$parasMode);
   }
 
   function handleToggleGloss(): void {
     const next = !$glossaryMode;
-    if (next) {
-      parasMode.set(false);
-      sentenceMode.set(false);
-    }
+    if (next) sentenceMode.set(false);
     glossaryMode.set(next);
   }
 
@@ -771,10 +766,7 @@
 
   function handleToggleSentence(): void {
     const next = !$sentenceMode;
-    if (next) {
-      parasMode.set(false);
-      glossaryMode.set(false);
-    }
+    if (next) glossaryMode.set(false);
     sentenceMode.set(next);
   }
 
@@ -2054,6 +2046,9 @@
           pinned: $glossPinMode,
           phoneticView: $wordPhoneticView,
           loop: $loopSpeech,
+          // With 段 also on, the paragraph click (read it aloud) belongs to 段;
+          // the pinned glosses stay on screen.
+          interactive: !$parasMode,
         }}
         use:sentenceAction={{
           enabled: $sentenceMode && leftIsEnglish && glossLayoutOk,
@@ -2112,6 +2107,8 @@
         pinned: $glossPinMode,
         phoneticView: $wordPhoneticView,
         loop: $loopSpeech,
+        // With 段 also on, the paragraph click (read it aloud) belongs to 段.
+        interactive: !$parasMode,
       }}
       use:sentenceAction={{
         enabled: $sentenceMode && rightIsEnglish && glossLayoutOk,

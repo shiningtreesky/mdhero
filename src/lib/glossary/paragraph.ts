@@ -467,6 +467,9 @@ export function createParagraphReadingBrowser(
   }
 
   function onClick(event: MouseEvent): void {
+    // 词/句 handled this click (a word or sentence was hit) and cancelled the
+    // default action: do not also read the whole paragraph aloud.
+    if (event.defaultPrevented) return;
     const entry = paragraphAt(event.clientX, event.clientY);
     if (!entry) return;
     event.preventDefault();

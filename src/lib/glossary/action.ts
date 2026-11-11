@@ -86,6 +86,10 @@ export interface GlossaryParams {
   phoneticView?: boolean;
   /** Repeat clicked words until clicked again. */
   loop?: boolean;
+  /** Whether hovering and clicking words does anything. Off while 段 mode runs
+   *  alongside 词: the pinned glosses stay on screen, but the paragraph click
+   *  belongs to 段 (listen to the whole paragraph). */
+  interactive?: boolean;
 }
 
 interface WordHit {
@@ -120,6 +124,7 @@ interface Browser {
   setPinned(on: boolean): void;
   setPhoneticView(on: boolean): void;
   setLoop(on: boolean): void;
+  setInteractive(on: boolean): void;
 }
 
 function injectStyles(): void {
@@ -231,6 +236,7 @@ export function createGlossaryBrowser(
   let rafPending = false;
   let pinned = params.pinned === true;
   let loopEnabled = params.loop === true;
+  let interactive = params.interactive !== false;
   /** 音 view: bubbles show IPA instead of the gloss. */
   let phoneticView = params.phoneticView === true;
   /** True while restoring saved pins: those are already in the file. */
@@ -685,6 +691,8 @@ export function createGlossaryBrowser(
   }
 
   function onMove(event: MouseEvent): void {
+    // 段 mode owns the pointer here; the pinned glosses stay visible.
+    if (!interactive) return;
     if (rafPending) return;
     rafPending = true;
     const x = event.clientX;
@@ -703,6 +711,9 @@ export function createGlossaryBrowser(
   }
 
   function onClick(event: MouseEvent): void {
+    // 段 mode is on: let the paragraph click through (read the paragraph aloud)
+    // instead of pinning another word.
+    if (!interactive) return;
     const target = event.target as Element | null;
 
     // Fallback mode: the word is a wrapper span, so read it from the target.
@@ -826,6 +837,7 @@ export function createGlossaryBrowser(
   }
 
   const fallbackOver = (event: MouseEvent): void => {
+    if (!interactive) return;
     const span = (event.target as Element | null)?.closest?.(`.${WORD_CLASS}`) as HTMLElement | null;
     span?.classList.add(HOVER_CLASS);
   };
@@ -885,6 +897,13 @@ export function createGlossaryBrowser(
     },
     setLoop(on: boolean) {
       loopEnabled = on;
+    },
+    setInteractive(on: boolean) {
+      interactive = on;
+      if (!on) {
+        hideBubble();
+        highlightRegistry?.delete(HOVER_NAME);
+      }
     },
     destroy() {
       destroyed = true;
@@ -946,6 +965,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
       const pinChanged = !!next.pinned !== !!current.pinned;
       const viewChanged = !!next.phoneticView !== !!current.phoneticView;
       const loopChanged = !!next.loop !== !!current.loop;
+      const interactiveChanged = (next.interactive !== false) !== (current.interactive !== false);
       current = next;
       if (changed) {
         stop();
@@ -955,6 +975,7 @@ export function glossary(node: HTMLElement, params: GlossaryParams) {
       if (pinChanged) browser?.setPinned(!!next.pinned);
       if (viewChanged) browser?.setPhoneticView(!!next.phoneticView);
       if (loopChanged) browser?.setLoop(!!next.loop);
+      if (interactiveChanged) browser?.setInteractive(next.interactive !== false);
     },
     destroy() {
       stop();
